@@ -2,7 +2,7 @@
   import { authStore } from "../../stores/auth";
 
   export let activeTab = "overview";
-  export let onTabChange = () => {};
+  export let onTabChange = (tabId) => {};
 
   $: isAdmin = $authStore.userData?.role === "admin";
 
@@ -27,7 +27,7 @@
     <div class="flex space-x-1 overflow-x-auto py-2">
       {#each tabs as tab}
         <button
-          on:click={() => onTabChange()}
+          on:click={() => onTabChange(tab.id)}
           class="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all {activeTab ===
           tab.id
             ? 'bg-blue-50 text-blue-600 shadow-sm'

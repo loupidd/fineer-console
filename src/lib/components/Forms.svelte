@@ -7,18 +7,19 @@
     addDoc,
     updateDoc,
     doc,
-    query,
-    where,
-    orderBy,
     Timestamp,
   } from "firebase/firestore";
   import { db } from "../services/firebase";
   import { authStore } from "../../stores/auth";
 
+  // Declare variables before reactive statements to avoid "used before declaration"
+  let isAdmin = false;
+  let currentUserId = "";
+
   $: isAdmin = $authStore.userData?.role === "admin";
   $: currentUserId = $authStore.userData?.id;
 
-  let activeForm = "leave"; // 'leave' or 'overtime'
+  let activeForm = "leave";
   let loading = false;
   let submissions = [];
 
@@ -51,21 +52,44 @@
   async function loadSubmissions() {
     loading = true;
     try {
-      const baseRef = collection(db, "forms");
+      const formsRef = collection(db, "forms");
+      const snap = await getDocs(formsRef);
 
-      const q =
-        !isAdmin && currentUserId
-          ? query(
-              baseRef,
-              where("userId", "==", currentUserId),
-              orderBy("createdAt", "desc")
-            )
-          : query(baseRef, orderBy("createdAt", "desc"));
+      let allSubmissions = snap.docs.map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          userId: data.userId || null,
+          createdAt: data.createdAt || null,
+          ...data,
+        };
+      });
 
-      const snap = await getDocs(q);
-      submissions = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      // Filter employee submissions if not admin
+      if (!isAdmin && currentUserId) {
+        allSubmissions = allSubmissions.filter(
+          (s) => s.userId && s.userId === currentUserId
+        );
+      }
+
+      // Sort by creation date (newest first)
+      allSubmissions.sort((a, b) => {
+        const aTime =
+          typeof a.createdAt === "object" && a.createdAt?.seconds
+            ? a.createdAt.seconds
+            : 0;
+        const bTime =
+          typeof b.createdAt === "object" && b.createdAt?.seconds
+            ? b.createdAt.seconds
+            : 0;
+        return bTime - aTime;
+      });
+
+      submissions = allSubmissions;
+      console.log("Loaded submissions:", submissions.length);
     } catch (error) {
       console.error("Error loading submissions:", error);
+      alert("Error loading submissions: " + error.message);
     } finally {
       loading = false;
     }
@@ -181,6 +205,7 @@
   }
 </script>
 
+<!-- ==================== HTML ==================== -->
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
   {#if !isAdmin}
     <!-- Employee Form Submission -->
@@ -214,13 +239,11 @@
           <form on:submit|preventDefault={submitLeaveRequest} class="space-y-4">
             <div>
               <label
-                for="leave-date"
-                class="block text-sm font-medium text-gray-700 mb-1"
+                for="leaveDate"
+                class="block text-sm font-medium text-gray-700 mb-1">Date</label
               >
-                Date
-              </label>
               <input
-                id="leave-date"
+                id="leaveDate"
                 type="date"
                 bind:value={leaveForm.date}
                 required
@@ -228,41 +251,37 @@
               />
             </div>
 
-            <div>
-              <p class="block text-sm font-medium text-gray-700 mb-2">
+            <fieldset>
+              <legend class="block text-sm font-medium text-gray-700 mb-2">
                 Request Type
-              </p>
+              </legend>
               <div class="space-y-2">
-                <label for="late-arrival" class="flex items-center">
+                <label class="flex items-center">
                   <input
-                    id="late-arrival"
                     type="checkbox"
                     bind:checked={leaveForm.lateArrival}
                     class="mr-2"
                   />
                   <span class="text-sm text-gray-700">Late Arrival</span>
                 </label>
-                <label for="sick-leave" class="flex items-center">
+                <label class="flex items-center">
                   <input
-                    id="sick-leave"
                     type="checkbox"
                     bind:checked={leaveForm.sick}
                     class="mr-2"
                   />
                   <span class="text-sm text-gray-700">Sick Leave</span>
                 </label>
-                <label for="early-leave" class="flex items-center">
+                <label class="flex items-center">
                   <input
-                    id="early-leave"
                     type="checkbox"
                     bind:checked={leaveForm.earlyLeave}
                     class="mr-2"
                   />
                   <span class="text-sm text-gray-700">Early Leave</span>
                 </label>
-                <label for="other-leave" class="flex items-center">
+                <label class="flex items-center">
                   <input
-                    id="other-leave"
                     type="checkbox"
                     bind:checked={leaveForm.other}
                     class="mr-2"
@@ -270,17 +289,16 @@
                   <span class="text-sm text-gray-700">Other</span>
                 </label>
               </div>
-            </div>
+            </fieldset>
 
             <div>
               <label
-                for="leave-reason"
+                for="leaveReason"
                 class="block text-sm font-medium text-gray-700 mb-1"
+                >Reason</label
               >
-                Reason
-              </label>
               <textarea
-                id="leave-reason"
+                id="leaveReason"
                 bind:value={leaveForm.reason}
                 required
                 rows="4"
@@ -305,13 +323,11 @@
           >
             <div>
               <label
-                for="overtime-date"
-                class="block text-sm font-medium text-gray-700 mb-1"
+                for="otDate"
+                class="block text-sm font-medium text-gray-700 mb-1">Date</label
               >
-                Date
-              </label>
               <input
-                id="overtime-date"
+                id="otDate"
                 type="date"
                 bind:value={overtimeForm.date}
                 required
@@ -321,13 +337,12 @@
 
             <div>
               <label
-                for="overtime-duration"
+                for="otDuration"
                 class="block text-sm font-medium text-gray-700 mb-1"
+                >Duration (hours)</label
               >
-                Duration (hours)
-              </label>
               <input
-                id="overtime-duration"
+                id="otDuration"
                 type="number"
                 bind:value={overtimeForm.duration}
                 required
@@ -339,13 +354,12 @@
 
             <div>
               <label
-                for="work-description"
+                for="otWorkDesc"
                 class="block text-sm font-medium text-gray-700 mb-1"
+                >Work Description</label
               >
-                Work Description
-              </label>
               <textarea
-                id="work-description"
+                id="otWorkDesc"
                 bind:value={overtimeForm.workDescription}
                 required
                 rows="3"
@@ -356,13 +370,12 @@
 
             <div>
               <label
-                for="overtime-reason"
+                for="otReason"
                 class="block text-sm font-medium text-gray-700 mb-1"
+                >Reason for Overtime</label
               >
-                Reason for Overtime
-              </label>
               <textarea
-                id="overtime-reason"
+                id="otReason"
                 bind:value={overtimeForm.reason}
                 required
                 rows="3"

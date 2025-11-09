@@ -1,4 +1,3 @@
-<!-- src/lib/components/EmployeeDashboard.svelte -->
 <script>
   import { onMount } from "svelte";
   import { collection, getDocs, query, where } from "firebase/firestore";
@@ -33,61 +32,68 @@
   async function loadTodayAttendance() {
     const today = new Date().toISOString().split("T")[0];
 
-    const snap = await getDocs(
-      query(
-        collection(db, "pegawai", userId, "presence"),
-        where("date", ">=", today),
-        where("date", "<", today + "T23:59:59")
-      )
-    );
+    try {
+      const presenceRef = collection(db, "pegawai", userId, "presence");
+      const snap = await getDocs(presenceRef);
 
-    if (!snap.empty) {
-      todayAttendance = snap.docs[0].data();
+      snap.forEach((doc) => {
+        const data = doc.data();
+
+        if (data.date) {
+          const presenceDate = data.date.split("T")[0];
+
+          if (presenceDate === today) {
+            todayAttendance = data;
+          }
+        }
+      });
+
+      console.log("Today attendance:", todayAttendance);
+    } catch (error) {
+      console.error("Error loading today attendance:", error);
     }
   }
 
   async function loadMonthlyStats() {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-      .toISOString()
-      .split("T")[0];
-    const endOfMonth = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59
-    ).toISOString();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-    const snap = await getDocs(
-      query(
-        collection(db, "pegawai", userId, "presence"),
-        where("date", ">=", startOfMonth),
-        where("date", "<=", endOfMonth)
-      )
-    );
+    try {
+      const presenceRef = collection(db, "pegawai", userId, "presence");
+      const snap = await getDocs(presenceRef);
 
-    let present = 0;
-    let late = 0;
+      let present = 0;
+      let late = 0;
 
-    snap.forEach((doc) => {
-      const data = doc.data();
-      present++;
+      snap.forEach((doc) => {
+        const data = doc.data();
 
-      if (data.masuk) {
-        const checkIn = new Date(data.masuk.date);
-        if (checkIn.getHours() >= 9) {
-          late++;
+        if (data.date) {
+          const presenceMonth = data.date.substring(0, 7);
+
+          if (presenceMonth === currentMonth) {
+            present++;
+
+            if (data.masuk && data.masuk.date) {
+              const checkIn = new Date(data.masuk.date);
+              if (checkIn.getHours() >= 9) {
+                late++;
+              }
+            }
+          }
         }
-      }
-    });
+      });
 
-    monthlyStats = {
-      present,
-      late,
-      total: present,
-    };
+      monthlyStats = {
+        present,
+        late,
+        total: present,
+      };
+
+      console.log("Monthly stats:", monthlyStats);
+    } catch (error) {
+      console.error("Error loading monthly stats:", error);
+    }
   }
 
   function formatTime(timestamp) {

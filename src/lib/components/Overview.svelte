@@ -1,6 +1,7 @@
+<!-- src/lib/components/Overview.svelte -->
 <script>
   import { onMount } from "svelte";
-  import { collection, getDocs, query, where } from "firebase/firestore";
+  import { collection, getDocs } from "firebase/firestore";
   import { db } from "../services/firebase";
 
   let totalEmployees = 0;
@@ -9,77 +10,115 @@
   let selectedDate = new Date().toISOString().split("T")[0];
   let todayRecords = [];
   let loading = true;
+  let debugInfo = "";
 
   onMount(() => {
+    console.log("Overview component mounted");
     loadStats();
     loadTodayAttendance();
   });
 
   async function loadStats() {
+    console.log("=== Loading Stats ===");
     try {
       const employeesSnap = await getDocs(collection(db, "pegawai"));
       totalEmployees = employeesSnap.size;
+      console.log("Total employees:", totalEmployees);
+
+      if (employeesSnap.empty) {
+        debugInfo = "No employees found in database";
+        console.warn(debugInfo);
+        return;
+      }
 
       const today = new Date().toISOString().split("T")[0];
+      console.log("Looking for date:", today);
       let present = 0;
       let late = 0;
 
-      for (const doc of employeesSnap.docs) {
-        const presenceSnap = await getDocs(
-          query(
-            collection(db, "pegawai", doc.id, "presence"),
-            where("date", ">=", today),
-            where("date", "<", today + "T23:59:59")
-          )
-        );
+      for (const empDoc of employeesSnap.docs) {
+        const empData = empDoc.data();
 
-        if (!presenceSnap.empty) {
-          present++;
-          const data = presenceSnap.docs[0].data();
-          if (data.masuk) {
-            const checkIn = new Date(data.masuk.date);
-            if (
-              checkIn.getHours() > 8 ||
-              (checkIn.getHours() === 8 && checkIn.getMinutes() > 30)
-            ) {
-              late++;
+        const presenceRef = collection(db, "pegawai", empDoc.id, "presence");
+        const presenceSnap = await getDocs(presenceRef);
+
+        presenceSnap.forEach((presDoc) => {
+          const data = presDoc.data();
+
+          if (data.date) {
+            const presenceDate = data.date.split("T")[0];
+
+            if (presenceDate === today) {
+              present++;
+              if (data.masuk && data.masuk.date) {
+                const checkIn = new Date(data.masuk.date);
+                if (
+                  checkIn.getHours() > 8 ||
+                  (checkIn.getHours() === 8 && checkIn.getMinutes() > 30)
+                ) {
+                  late++;
+                }
+              }
             }
           }
-        }
+        });
       }
 
       presentToday = present;
       lateToday = late;
+      console.log("Final stats:", { totalEmployees, presentToday, lateToday });
+      debugInfo = `Loaded ${totalEmployees} employees, ${presentToday} present today, ${lateToday} late`;
     } catch (error) {
       console.error("Error loading stats:", error);
+      debugInfo = "Error: " + error.message;
     }
   }
 
   async function loadTodayAttendance() {
+    console.log("=== Loading Today Attendance ===");
     loading = true;
     try {
       const employeesSnap = await getDocs(collection(db, "pegawai"));
       const records = [];
 
+      console.log(
+        "Processing",
+        employeesSnap.size,
+        "employees for date:",
+        selectedDate
+      );
+
       for (const doc of employeesSnap.docs) {
         const employee = doc.data();
-        const presenceSnap = await getDocs(
-          query(
-            collection(db, "pegawai", doc.id, "presence"),
-            where("date", ">=", selectedDate),
-            where("date", "<", selectedDate + "T23:59:59")
-          )
-        );
 
-        if (!presenceSnap.empty) {
-          const presence = presenceSnap.docs[0].data();
-          records.push({ employee, presence });
-        }
+        const presenceRef = collection(db, "pegawai", doc.id, "presence");
+        const presenceSnap = await getDocs(presenceRef);
+
+        presenceSnap.forEach((presDoc) => {
+          const presence = presDoc.data();
+
+          if (presence.date) {
+            const presenceDate = presence.date.split("T")[0];
+
+            if (presenceDate === selectedDate) {
+              records.push({ employee, presence });
+              console.log(
+                "Found record for:",
+                employee.name,
+                "on",
+                presenceDate
+              );
+            }
+          }
+        });
       }
 
       todayRecords = records;
+      console.log("Total records loaded:", records.length);
+      debugInfo += ` | ${records.length} attendance records for ${selectedDate}`;
     } catch (error) {
       console.error("Error loading attendance:", error);
+      debugInfo = "Error: " + error.message;
     } finally {
       loading = false;
     }
@@ -102,6 +141,16 @@
 </script>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+  <!-- Debug Info -->
+  {#if debugInfo}
+    <div
+      class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800"
+    >
+      <strong>Debug:</strong>
+      {debugInfo}
+    </div>
+  {/if}
+
   <!-- Stats Grid -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
@@ -174,6 +223,7 @@
       {:else if todayRecords.length === 0}
         <div class="text-center py-12">
           <p class="text-gray-500">No attendance records for this date</p>
+          <p class="text-xs text-gray-400 mt-2">Date: {selectedDate}</p>
         </div>
       {:else}
         <div class="overflow-x-auto">

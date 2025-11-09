@@ -4,7 +4,6 @@
     collection,
     getDocs,
     query,
-    Query,
     where,
     orderBy,
   } from "firebase/firestore";
@@ -29,13 +28,11 @@
     loading = true;
     try {
       const [year, month] = selectedMonth.split("-");
-      const startDate = `${year}-${month}-01`;
-      const endDate = `${year}-${month}-31T23:59:59`;
-
+      const targetMonth = `${year}-${month}`;
       let q;
       q = collection(db, "pegawai");
       if (selectedSite) {
-        q = query(collection(db, "pegawai"), where("site", "==", selectedSite));
+        q = query(q, where("site", "==", selectedSite));
       }
 
       const employeesSnap = await getDocs(q);
@@ -46,27 +43,41 @@
         const employee = empDoc.data();
         if (employee.site) siteSet.add(employee.site);
 
-        const presenceSnap = await getDocs(
-          query(
-            collection(db, "pegawai", empDoc.id, "presence"),
-            where("date", ">=", startDate),
-            where("date", "<=", endDate),
-            orderBy("date", "desc")
-          )
-        );
+        const presenceRef = collection(db, "pegawai", empDoc.id, "presence");
+        const presenceSnap = await getDocs(presenceRef);
 
+        // Filter for the selected month
         presenceSnap.forEach((presDoc) => {
-          allRecords.push({
-            employee,
-            ...presDoc.data(),
-          });
+          const presenceData = presDoc.data();
+
+          if (presenceData.date) {
+            // Extract YYYY-MM from the date string
+            const presenceMonth = presenceData.date.substring(0, 7);
+
+            if (presenceMonth === targetMonth) {
+              allRecords.push({
+                employee,
+                ...presenceData,
+              });
+            }
+          }
         });
       }
 
+      // Sort by date descending
+      allRecords.sort((a, b) => b.date.localeCompare(a.date));
+
       records = allRecords;
       sites = Array.from(siteSet).sort();
+      console.log(
+        "Loaded attendance records:",
+        records.length,
+        "for month:",
+        targetMonth
+      );
     } catch (error) {
       console.error("Error loading attendance:", error);
+      alert("Error loading attendance: " + error.message);
     } finally {
       loading = false;
     }

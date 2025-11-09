@@ -1,4 +1,3 @@
-<!-- src/lib/components/Employees.svelte -->
 <script>
   import { onMount } from "svelte";
   import { collection, getDocs, query, where } from "firebase/firestore";
@@ -25,15 +24,19 @@
       const snap = await getDocs(q);
       employees = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
-      // Extract unique sites
+      // Extract unique sites from all employees
+      const allEmployeesSnap = await getDocs(collection(db, "pegawai"));
       const siteSet = new Set();
-      snap.docs.forEach((doc) => {
+      allEmployeesSnap.docs.forEach((doc) => {
         const site = doc.data().site;
         if (site) siteSet.add(site);
       });
       sites = Array.from(siteSet).sort();
+
+      console.log("Loaded employees:", employees.length);
     } catch (error) {
       console.error("Error loading employees:", error);
+      alert("Error loading employees: " + error.message);
     } finally {
       loading = false;
     }
