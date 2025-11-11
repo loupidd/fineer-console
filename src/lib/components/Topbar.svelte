@@ -1,41 +1,16 @@
-<!-- src/lib/components/Topbar.svelte -->
 <script>
   import { signOut } from "firebase/auth";
   import { auth } from "../services/firebase";
   import { authStore } from "../../stores/auth";
   import logo from "../../assets/logo.webp";
+  import { translations } from "../i18n/translations";
+  import { language } from "../../stores/language";
 
   export let activeTab = "overview";
   export let onTabChange = (tabId) => {};
-  export let language = "en";
-  export let onLanguageChange = (lang) => {};
 
-  const translations = {
-    en: {
-      overview: "Overview",
-      dashboard: "Dashboard",
-      employees: "Employees",
-      attendance: "Attendance",
-      forms: "Forms",
-      submitForms: "Submit Forms",
-      reports: "Reports",
-      logout: "Logout",
-      loggingOut: "Logging out...",
-    },
-    id: {
-      overview: "Ringkasan",
-      dashboard: "Dashboard",
-      employees: "Karyawan",
-      attendance: "Kehadiran",
-      forms: "Formulir",
-      submitForms: "Kirim Formulir",
-      reports: "Laporan",
-      logout: "Keluar",
-      loggingOut: "Keluar...",
-    },
-  };
+  $: t = translations[$language].Topbar;
 
-  $: t = translations[language];
   $: isAdmin = $authStore.userData?.role === "admin";
 
   const adminTabs = [
@@ -86,6 +61,10 @@
       loading = false;
     }
   }
+
+  function switchLanguage(lang) {
+    language.set(lang);
+  }
 </script>
 
 <div class="bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
@@ -115,26 +94,25 @@
         <!-- Right Side - User Info & Actions -->
         <div class="flex items-center gap-3">
           <!-- Language Switch -->
-          <div class="flex items-center bg-[#F8F8F8] rounded-lg p-1">
-            <button
-              on:click={() => onLanguageChange("en")}
-              class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 {language ===
-              'en'
-                ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-sm'
-                : 'text-gray-600 hover:text-[#1A4786]'}"
-            >
-              EN
-            </button>
-            <button
-              on:click={() => onLanguageChange("id")}
-              class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200 {language ===
-              'id'
-                ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-sm'
-                : 'text-gray-600 hover:text-[#1A4786]'}"
-            >
-              ID
-            </button>
-          </div>
+          <button
+            on:click={() => switchLanguage("en")}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+    {$language === 'en'
+              ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-sm'
+              : 'text-gray-600 hover:text-[#1A4786]'}"
+          >
+            EN
+          </button>
+
+          <button
+            on:click={() => switchLanguage("id")}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+    {$language === 'id'
+              ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-sm'
+              : 'text-gray-600 hover:text-[#1A4786]'}"
+          >
+            ID
+          </button>
 
           <!-- User Info -->
           {#if $authStore.userData}

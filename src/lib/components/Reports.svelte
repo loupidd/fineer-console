@@ -10,75 +10,11 @@
   import { db } from "../services/firebase";
   import { fade, fly } from "svelte/transition";
   import { quintOut } from "svelte/easing";
+  import { translations } from "../i18n/translations";
 
-  export let language = "en";
+  import { language } from "../../stores/language";
 
-  const translations = {
-    en: {
-      title: "Generate Reports",
-      subtitle: "Export attendance data in CSV format",
-      reportType: "Report Type",
-      daily: "Daily",
-      monthly: "Monthly",
-      yearly: "Yearly",
-      selectDate: "Select Date",
-      selectMonth: "Select Month",
-      selectYear: "Select Year",
-      employee: "Employee",
-      allEmployees: "All Employees",
-      selectEmployee: "Select an employee",
-      generate: "Generate Report",
-      generating: "Generating...",
-      preview: "Report Preview",
-      totalRecords: "Total Records",
-      download: "Download CSV",
-      noRecords: "No attendance records found for this period",
-      date: "Date",
-      employeeName: "Employee Name",
-      nik: "NIK",
-      site: "Site",
-      checkIn: "Check In",
-      checkOut: "Check Out",
-      status: "Status",
-      onTime: "On Time",
-      late: "Late",
-      incomplete: "Incomplete",
-      pleaseGenerate: "Please generate a report first",
-    },
-    id: {
-      title: "Buat Laporan",
-      subtitle: "Ekspor data kehadiran dalam format CSV",
-      reportType: "Jenis Laporan",
-      daily: "Harian",
-      monthly: "Bulanan",
-      yearly: "Tahunan",
-      selectDate: "Pilih Tanggal",
-      selectMonth: "Pilih Bulan",
-      selectYear: "Pilih Tahun",
-      employee: "Karyawan",
-      allEmployees: "Semua Karyawan",
-      selectEmployee: "Pilih karyawan",
-      generate: "Buat Laporan",
-      generating: "Membuat...",
-      preview: "Pratinjau Laporan",
-      totalRecords: "Total Rekaman",
-      download: "Unduh CSV",
-      noRecords: "Tidak ada catatan kehadiran untuk periode ini",
-      date: "Tanggal",
-      employeeName: "Nama Karyawan",
-      nik: "NIK",
-      site: "Lokasi",
-      checkIn: "Masuk",
-      checkOut: "Keluar",
-      status: "Status",
-      onTime: "Tepat Waktu",
-      late: "Terlambat",
-      incomplete: "Tidak Lengkap",
-      pleaseGenerate: "Silakan buat laporan terlebih dahulu",
-    },
-  };
-
-  $: t = translations[language];
+  $: t = translations[$language].Reports;
 
   let reportType = "monthly";
   let selectedDate = new Date().toISOString().split("T")[0];
@@ -119,7 +55,7 @@
         startDate = selectedDate;
         endDate = `${selectedDate}T23:59:59`;
         periodName = new Date(selectedDate).toLocaleDateString(
-          language === "id" ? "id-ID" : "en-US",
+          $language === "id" ? "id-ID" : "en-US",
           { year: "numeric", month: "long", day: "numeric" }
         );
       } else if (reportType === "monthly") {
@@ -128,7 +64,7 @@
         startDate = `${year}-${month}-01`;
         endDate = `${year}-${month}-${lastDay}T23:59:59`;
         periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
-          language === "id" ? "id-ID" : "en-US",
+          $language === "id" ? "id-ID" : "en-US",
           { month: "long", year: "numeric" }
         );
       } else {
@@ -158,7 +94,7 @@
         presenceSnap.forEach((doc) => {
           const presence = doc.data();
           const date = new Date(presence.date).toLocaleDateString(
-            language === "id" ? "id-ID" : "en-US"
+            $language === "id" ? "id-ID" : "en-US"
           );
           const checkIn = presence.masuk
             ? new Date(presence.masuk.date).toLocaleTimeString("en-US", {
@@ -214,13 +150,13 @@
     let periodName;
     if (reportType === "daily") {
       periodName = new Date(selectedDate).toLocaleDateString(
-        language === "id" ? "id-ID" : "en-US",
+        $language === "id" ? "id-ID" : "en-US",
         { year: "numeric", month: "long", day: "numeric" }
       );
     } else if (reportType === "monthly") {
       const [year, month] = selectedMonth.split("-");
       periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
-        language === "id" ? "id-ID" : "en-US",
+        $language === "id" ? "id-ID" : "en-US",
         { month: "long", year: "numeric" }
       );
     } else {

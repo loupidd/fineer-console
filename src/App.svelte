@@ -9,9 +9,9 @@
   import Reports from "./lib/components/Reports.svelte";
   import Forms from "./lib/components/Forms.svelte";
   import EmployeeDashboard from "./lib/components/EmployeeDashboard.svelte";
+  import { language } from "./stores/language";
 
   let activeTab = "overview";
-  let language = "en";
 
   $: isAdmin = $authStore.userData?.role === "admin";
   $: isAuthenticated = $authStore.user && $authStore.userData;
@@ -23,7 +23,7 @@
 
   function handleLanguageChange(lang) {
     console.log("Switching to language:", lang);
-    language = lang;
+    language.set(lang);
   }
 
   // Debug
@@ -44,12 +44,7 @@
   {:else if !isAuthenticated}
     <Login />
   {:else}
-    <Topbar
-      {activeTab}
-      onTabChange={handleTabChange}
-      {language}
-      onLanguageChange={handleLanguageChange}
-    />
+    <Topbar {activeTab} onTabChange={handleTabChange} />
 
     <div class="pb-8">
       <!-- Overview Tab - Always render but hide when not active -->

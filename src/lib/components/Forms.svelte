@@ -12,133 +12,11 @@
   import { authStore } from "../../stores/auth";
   import { fade, fly } from "svelte/transition";
   import { quintOut } from "svelte/easing";
+  import { translations } from "../i18n/translations";
 
-  export let language = "en";
+  import { language } from "../../stores/language";
 
-  // Translation object
-  const translations = {
-    en: {
-      title: "Forms & Submissions",
-      subtitle: "Submit and manage leave and overtime requests",
-      leaveRequest: "Leave Request",
-      overtimeRequest: "Overtime Request",
-      permissionRequest: "Permission Request",
-      pendingSubmissions: "Pending",
-      approvedSubmissions: "Approved",
-      rejectedSubmissions: "Rejected",
-
-      // Leave form fields
-      leaveType: "Leave Type",
-      selectLeaveType: "Select leave type",
-      annualLeave: "Annual Leave",
-      sickLeave: "Sick Leave",
-      emergencyLeave: "Emergency Leave",
-      startDate: "Start Date",
-      endDate: "End Date",
-      totalDays: "Total Days",
-      reason: "Reason",
-      reasonPlaceholder: "Please explain your leave request...",
-      leaveNote:
-        "Note: Leave requests must be submitted at least 7 days in advance.",
-
-      // Overtime form fields
-      overtimeDate: "Overtime Date",
-      startTime: "Start Time",
-      endTime: "End Time",
-      totalHours: "Total Hours",
-      workDescription: "Work Description",
-      workDescPlaceholder: "Describe the work or task performed...",
-
-      // Permission form fields
-      permissionType: "Permission Type",
-      selectPermissionType: "Select permission type",
-      lateArrival: "Late Arrival",
-      earlyLeave: "Early Leave",
-      sick: "Sick",
-      date: "Date",
-      detailsOfPurpose: "Details of Purpose",
-      detailsPlaceholder: "Please provide details...",
-
-      // Common
-      other: "Other",
-      submit: "Submit Request",
-      submitting: "Submitting...",
-      allSubmissions: "All Submissions",
-      mySubmissions: "My Submissions",
-      refresh: "Refresh",
-      loading: "Loading submissions...",
-      noSubmissions: "No submissions found",
-      submitted: "Submitted",
-      approved: "Approved",
-      rejected: "Rejected",
-      pending: "Pending",
-      approve: "Approve",
-      reject: "Reject",
-      approvedBy: "by",
-      hours: "hours",
-      type: "Type",
-    },
-    id: {
-      title: "Formulir & Pengajuan",
-      subtitle: "Kirim dan kelola permintaan cuti dan lembur",
-      leaveRequest: "Permintaan Cuti",
-      overtimeRequest: "Permintaan Lembur",
-      permissionRequest: "Permintaan Ijin",
-
-      // Leave form fields
-      leaveType: "Jenis Cuti Yang Diajukan",
-      selectLeaveType: "Pilih jenis cuti",
-      annualLeave: "Cuti Tahunan",
-      sickLeave: "Cuti Sakit",
-      emergencyLeave: "Cuti Darurat",
-      startDate: "Tanggal Mulai",
-      endDate: "Tanggal Selesai",
-      totalDays: "Total Hari Cuti",
-      reason: "Keperluan",
-      reasonPlaceholder: "Mohon jelaskan keperluan cuti Anda...",
-      leaveNote: "Keterangan: Permintaan cuti minimal 7 hari sebelumnya.",
-
-      // Overtime form fields
-      overtimeDate: "Tanggal Lembur",
-      startTime: "Jam Mulai",
-      endTime: "Jam Selesai",
-      totalHours: "Total Jam",
-      workDescription: "Deskripsi Pekerjaan",
-      workDescPlaceholder: "Jelaskan pekerjaan yang dilakukan...",
-
-      // Permission form fields
-      permissionType: "Jenis Ijin",
-      selectPermissionType: "Pilih jenis ijin",
-      lateArrival: "Terlambat",
-      earlyLeave: "Pulang Cepat",
-      sick: "Sakit",
-      date: "Tanggal",
-      detailsOfPurpose: "Keterangan",
-      detailsPlaceholder: "Mohon jelaskan keterangan...",
-
-      // Common
-      other: "Lainnya",
-      submit: "Kirim Permohonan",
-      submitting: "Mengirim...",
-      allSubmissions: "Semua Pengajuan",
-      mySubmissions: "Pengajuan Saya",
-      refresh: "Segarkan",
-      loading: "Memuat pengajuan...",
-      noSubmissions: "Tidak ada pengajuan",
-      submitted: "Dikirim",
-      approved: "Disetujui",
-      rejected: "Ditolak",
-      pending: "Menunggu",
-      approve: "Setujui",
-      reject: "Tolak",
-      approvedBy: "oleh",
-      hours: "jam",
-      type: "Jenis",
-    },
-  };
-
-  // Reactive translation
-  $: t = translations[language];
+  $: t = translations[$language].Forms;
 
   // User authentication and role
   let isAdmin = false;
@@ -485,7 +363,7 @@
   function formatDate(timestamp) {
     if (!timestamp) return "-";
     return new Date(timestamp.seconds * 1000).toLocaleString(
-      language === "id" ? "id-ID" : "en-US",
+      $language === "id" ? "id-ID" : "en-US",
       {
         year: "numeric",
         month: "short",
@@ -552,9 +430,18 @@
 
   {#if !isAdmin}
     {#if currentView === "selection"}
+      <script>
+        import { translations } from "../i18n/translations";
+        import { language } from "../../stores/language";
+        import { fly } from "svelte/transition";
+        import { quintOut } from "svelte/easing";
+
+        let currentView = "";
+        let activeForm = "";
+      </script>
+
       <!-- Card Selection View -->
       <div class="max-w-7xl mx-auto" in:fade={{ duration: 300 }}>
-        <!-- Form Cards -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <!-- Leave Request Card -->
           <button
@@ -568,6 +455,7 @@
             <div
               class="bg-linear-to-br from-[#3A7AE0] to-[#1A4786] p-5 rounded-2xl mb-6 inline-block shadow-lg group-hover:scale-110 transition-transform duration-300"
             >
+              <!-- Icon stays the same -->
               <svg
                 class="w-10 h-10 text-white"
                 fill="none"
@@ -583,11 +471,9 @@
               </svg>
             </div>
             <h3 class="text-2xl font-bold text-[#1A4786] mb-3">
-              Permohonan Cuti
+              {t.leaveRequest}
             </h3>
-            <p class="text-gray-600 leading-relaxed">
-              Cuti tahunan, sakit, melahirkan, menikah, atau keluarga meninggal
-            </p>
+            <p class="text-gray-600 leading-relaxed">{t.leaveRequestDesc}</p>
           </button>
 
           <!-- Overtime Request Card -->
@@ -617,9 +503,11 @@
               </svg>
             </div>
             <h3 class="text-2xl font-bold text-[#1A4786] mb-3">
-              Surat Perintah Lembur
+              {t.overtimeRequest}
             </h3>
-            <p class="text-gray-600 leading-relaxed">Kirim jam kerja lembur</p>
+            <p class="text-gray-600 leading-relaxed">
+              {t.overtimeRequestDesc}
+            </p>
           </button>
 
           <!-- Permission Request Card -->
@@ -646,10 +534,10 @@
               </svg>
             </div>
             <h3 class="text-2xl font-bold text-[#1A4786] mb-3">
-              Formulir Ijin
+              {t.permissionRequest}
             </h3>
             <p class="text-gray-600 leading-relaxed">
-              Izin terlambat, pulang awal, atau sakit
+              {t.permissionRequestDesc}
             </p>
           </button>
         </div>

@@ -10,57 +10,10 @@
   } from "firebase/firestore";
   import { db } from "../services/firebase";
   import { authStore } from "../../stores/auth";
+  import { translations } from "../i18n/translations";
+  import { language } from "../../stores/language";
 
-  export let language;
-
-  const translations = {
-    en: {
-      welcomeBack: "Welcome Back",
-      todayAttendance: "Today's Attendance",
-      checkIn: "Check In",
-      checkOut: "Check Out",
-      notCheckedIn: "Not Yet",
-      notCheckedOut: "Not Yet",
-      statusCheckedIn: "Checked In",
-      statusCheckedOut: "Checked Out",
-      pending: "Pending",
-      daysPresent: "Days Present",
-      lateArrivals: "Late Arrivals",
-      attendanceRate: "Attendance Rate",
-      thisMonth: "This Month",
-      quickActions: "Quick Actions",
-      officePresence: "Office Presence",
-      officePresenceDesc: "Check in when you arrive at the office",
-      officePresenceAction: "Go to Attendance",
-      submitForms: "Submit Forms",
-      submitFormsDesc: "Request leave, overtime, or permission",
-      submitFormsAction: "Go to Forms",
-    },
-    id: {
-      welcomeBack: "Selamat Datang Kembali",
-      todayAttendance: "Kehadiran Hari Ini",
-      checkIn: "Masuk",
-      checkOut: "Keluar",
-      notCheckedIn: "Belum",
-      notCheckedOut: "Belum",
-      statusCheckedIn: "Sudah Masuk",
-      statusCheckedOut: "Sudah Keluar",
-      pending: "Menunggu",
-      daysPresent: "Hari Hadir",
-      lateArrivals: "Keterlambatan",
-      attendanceRate: "Tingkat Kehadiran",
-      thisMonth: "Bulan Ini",
-      quickActions: "Aksi Cepat",
-      officePresence: "Presensi Kantor",
-      officePresenceDesc: "Check in saat tiba di kantor",
-      officePresenceAction: "Ke Kehadiran",
-      submitForms: "Kirim Formulir",
-      submitFormsDesc: "Ajukan cuti, lembur, atau izin",
-      submitFormsAction: "Ke Formulir",
-    },
-  };
-
-  $: t = translations[$language];
+  $: t = translations[$language].EmployeeOverview;
   $: userId = $authStore.userData?.id;
   $: userName = $authStore.userData?.name;
 
