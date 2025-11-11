@@ -8,8 +8,82 @@
     orderBy,
   } from "firebase/firestore";
   import { db } from "../services/firebase";
+  import { fade, fly } from "svelte/transition";
+  import { quintOut } from "svelte/easing";
 
+  export let language = "en";
+
+  const translations = {
+    en: {
+      title: "Generate Reports",
+      subtitle: "Export attendance data in CSV format",
+      reportType: "Report Type",
+      daily: "Daily",
+      monthly: "Monthly",
+      yearly: "Yearly",
+      selectDate: "Select Date",
+      selectMonth: "Select Month",
+      selectYear: "Select Year",
+      employee: "Employee",
+      allEmployees: "All Employees",
+      selectEmployee: "Select an employee",
+      generate: "Generate Report",
+      generating: "Generating...",
+      preview: "Report Preview",
+      totalRecords: "Total Records",
+      download: "Download CSV",
+      noRecords: "No attendance records found for this period",
+      date: "Date",
+      employeeName: "Employee Name",
+      nik: "NIK",
+      site: "Site",
+      checkIn: "Check In",
+      checkOut: "Check Out",
+      status: "Status",
+      onTime: "On Time",
+      late: "Late",
+      incomplete: "Incomplete",
+      pleaseGenerate: "Please generate a report first",
+    },
+    id: {
+      title: "Buat Laporan",
+      subtitle: "Ekspor data kehadiran dalam format CSV",
+      reportType: "Jenis Laporan",
+      daily: "Harian",
+      monthly: "Bulanan",
+      yearly: "Tahunan",
+      selectDate: "Pilih Tanggal",
+      selectMonth: "Pilih Bulan",
+      selectYear: "Pilih Tahun",
+      employee: "Karyawan",
+      allEmployees: "Semua Karyawan",
+      selectEmployee: "Pilih karyawan",
+      generate: "Buat Laporan",
+      generating: "Membuat...",
+      preview: "Pratinjau Laporan",
+      totalRecords: "Total Rekaman",
+      download: "Unduh CSV",
+      noRecords: "Tidak ada catatan kehadiran untuk periode ini",
+      date: "Tanggal",
+      employeeName: "Nama Karyawan",
+      nik: "NIK",
+      site: "Lokasi",
+      checkIn: "Masuk",
+      checkOut: "Keluar",
+      status: "Status",
+      onTime: "Tepat Waktu",
+      late: "Terlambat",
+      incomplete: "Tidak Lengkap",
+      pleaseGenerate: "Silakan buat laporan terlebih dahulu",
+    },
+  };
+
+  $: t = translations[language];
+
+  let reportType = "monthly";
+  let selectedDate = new Date().toISOString().split("T")[0];
   let selectedMonth = getDefaultMonth();
+  let selectedYear = new Date().getFullYear().toString();
   let selectedEmployee = "all";
   let employees = [];
   let reportData = [];
@@ -39,17 +113,30 @@
     showPreview = false;
 
     try {
-      const [yearStr, monthStr] = selectedMonth.split("-");
-      const year = Number(yearStr);
-      const month = Number(monthStr);
+      let startDate, endDate, periodName;
 
-      const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-      const endDate = `${year}-${String(month).padStart(2, "0")}-31T23:59:59`;
-
-      const monthName = new Date(year, month - 1).toLocaleString("default", {
-        month: "long",
-        year: "numeric",
-      });
+      if (reportType === "daily") {
+        startDate = selectedDate;
+        endDate = `${selectedDate}T23:59:59`;
+        periodName = new Date(selectedDate).toLocaleDateString(
+          language === "id" ? "id-ID" : "en-US",
+          { year: "numeric", month: "long", day: "numeric" }
+        );
+      } else if (reportType === "monthly") {
+        const [year, month] = selectedMonth.split("-");
+        const lastDay = new Date(Number(year), Number(month), 0).getDate();
+        startDate = `${year}-${month}-01`;
+        endDate = `${year}-${month}-${lastDay}T23:59:59`;
+        periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
+          language === "id" ? "id-ID" : "en-US",
+          { month: "long", year: "numeric" }
+        );
+      } else {
+        // yearly
+        startDate = `${selectedYear}-01-01`;
+        endDate = `${selectedYear}-12-31T23:59:59`;
+        periodName = selectedYear;
+      }
 
       let employeesToProcess =
         selectedEmployee === "all"
@@ -70,7 +157,9 @@
 
         presenceSnap.forEach((doc) => {
           const presence = doc.data();
-          const date = new Date(presence.date).toLocaleDateString();
+          const date = new Date(presence.date).toLocaleDateString(
+            language === "id" ? "id-ID" : "en-US"
+          );
           const checkIn = presence.masuk
             ? new Date(presence.masuk.date).toLocaleTimeString("en-US", {
                 hour: "2-digit",
@@ -90,9 +179,9 @@
             presence.masuk && new Date(presence.masuk.date).getHours() >= 9;
           const isIncomplete = !presence.keluar;
 
-          let status = "On Time";
-          if (isLate) status = "Late";
-          if (isIncomplete) status = "Incomplete";
+          let status = t.onTime;
+          if (isLate) status = t.late;
+          if (isIncomplete) status = t.incomplete;
 
           data.push({
             date,
@@ -118,28 +207,34 @@
 
   function downloadCSV() {
     if (reportData.length === 0) {
-      alert("Please generate a report first");
+      alert(t.pleaseGenerate);
       return;
     }
 
-    const [yearStr, monthStr] = selectedMonth.split("-");
-    const year = Number(yearStr);
-    const month = Number(monthStr);
+    let periodName;
+    if (reportType === "daily") {
+      periodName = new Date(selectedDate).toLocaleDateString(
+        language === "id" ? "id-ID" : "en-US",
+        { year: "numeric", month: "long", day: "numeric" }
+      );
+    } else if (reportType === "monthly") {
+      const [year, month] = selectedMonth.split("-");
+      periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
+        language === "id" ? "id-ID" : "en-US",
+        { month: "long", year: "numeric" }
+      );
+    } else {
+      periodName = selectedYear;
+    }
 
-    const monthName = new Date(year, month - 1).toLocaleString("default", {
-      month: "long",
-      year: "numeric",
-    });
-
-    // Create CSV with proper formatting
     const headers = [
-      "Date",
-      "Employee Name",
-      "NIK",
-      "Site",
-      "Check In",
-      "Check Out",
-      "Status",
+      t.date,
+      t.employeeName,
+      t.nik,
+      t.site,
+      t.checkIn,
+      t.checkOut,
+      t.status,
     ];
     const rows = reportData.map((row) => [
       row.date,
@@ -151,12 +246,7 @@
       row.status,
     ]);
 
-    // Escape and format CSV
-    const csvContent = [
-      [`Fineer Attendance Report - ${monthName}`],
-      headers,
-      ...rows,
-    ]
+    const csvContent = [[`Attendance Report - ${periodName}`], headers, ...rows]
       .map((row) =>
         row
           .map((cell) => {
@@ -174,133 +264,338 @@
       )
       .join("\n");
 
-    // Download
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
 
+    const filename = `Attendance_Report_${reportType}_${reportType === "daily" ? selectedDate : reportType === "monthly" ? selectedMonth : selectedYear}.csv`;
+
     link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `Fineer_Attendance_Report_${selectedMonth}.csv`
-    );
+    link.setAttribute("download", filename);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   }
+
+  function getYears() {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = currentYear; i >= currentYear - 5; i--) {
+      years.push(i.toString());
+    }
+    return years;
+  }
 </script>
 
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-  <!-- Generate Report Card -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">
-      Generate CSV Reports
-    </h2>
+  <!-- Header -->
+  <div
+    class="bg-linear-to-r from-[#1A4786] to-[#3A7AE0] rounded-2xl shadow-lg p-8 text-white relative overflow-hidden"
+    in:fly={{ y: 20, duration: 600, easing: quintOut }}
+  >
+    <div
+      class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32"
+    ></div>
+    <div
+      class="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full -ml-24 -mb-24"
+    ></div>
 
-    <div class="space-y-4">
-      <div>
-        <label for="month" class="block text-sm font-medium text-gray-700 mb-1">
-          Month
+    <div class="relative z-10">
+      <div class="flex items-center gap-3">
+        <div
+          class="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center"
+        >
+          <svg
+            class="w-6 h-6 text-[#FFD700]"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-2xl font-bold">{t.title}</h1>
+          <p class="text-sm text-white/80">{t.subtitle}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generate Report Card -->
+  <div
+    class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8"
+    in:fly={{ y: 20, duration: 600, delay: 100, easing: quintOut }}
+  >
+    <div class="space-y-6">
+      <!-- Report Type -->
+      <div class="input-focus-ring">
+        <label
+          for="reportType"
+          class="block text-sm font-semibold text-[#1A4786] mb-2"
+        >
+          {t.reportType}
         </label>
-        <input
-          id="month"
-          type="month"
-          bind:value={selectedMonth}
-          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+        <select
+          id="reportType"
+          bind:value={reportType}
+          class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium appearance-none"
+        >
+          <option value="daily">{t.daily}</option>
+          <option value="monthly">{t.monthly}</option>
+          <option value="yearly">{t.yearly}</option>
+        </select>
       </div>
 
-      <div>
+      <!-- Date Selection -->
+      {#if reportType === "daily"}
+        <div class="input-focus-ring" in:fade={{ duration: 200 }}>
+          <label
+            for="date"
+            class="block text-sm font-semibold text-[#1A4786] mb-2"
+          >
+            {t.selectDate}
+          </label>
+          <input
+            id="date"
+            type="date"
+            bind:value={selectedDate}
+            class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium"
+          />
+        </div>
+      {:else if reportType === "monthly"}
+        <div class="input-focus-ring" in:fade={{ duration: 200 }}>
+          <label
+            for="month"
+            class="block text-sm font-semibold text-[#1A4786] mb-2"
+          >
+            {t.selectMonth}
+          </label>
+          <input
+            id="month"
+            type="month"
+            bind:value={selectedMonth}
+            class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium"
+          />
+        </div>
+      {:else}
+        <div class="input-focus-ring" in:fade={{ duration: 200 }}>
+          <label
+            for="year"
+            class="block text-sm font-semibold text-[#1A4786] mb-2"
+          >
+            {t.selectYear}
+          </label>
+          <select
+            id="year"
+            bind:value={selectedYear}
+            class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium appearance-none"
+          >
+            {#each getYears() as year}
+              <option value={year}>{year}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
+      <!-- Employee Selection -->
+      <div class="input-focus-ring">
         <label
           for="employee"
-          class="block text-sm font-medium text-gray-700 mb-1"
+          class="block text-sm font-semibold text-[#1A4786] mb-2"
         >
-          Employee
+          {t.employee}
         </label>
         <select
           id="employee"
           bind:value={selectedEmployee}
-          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium appearance-none"
         >
-          <option value="">Select an employee</option>
+          <option value="all">{t.allEmployees}</option>
           {#each employees as emp}
             <option value={emp.id}>{emp.name}</option>
           {/each}
         </select>
       </div>
 
+      <!-- Generate Button -->
       <button
         on:click={generateReport}
         disabled={loading}
-        class="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+        class="w-full px-6 py-4 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
       >
-        {loading ? "Generating..." : "Generate Report"}
+        {#if loading}
+          <div class="flex items-center justify-center gap-2">
+            <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            <span>{t.generating}</span>
+          </div>
+        {:else}
+          <div class="flex items-center justify-center gap-2">
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            <span>{t.generate}</span>
+          </div>
+        {/if}
       </button>
     </div>
   </div>
 
   <!-- Preview Card -->
   {#if showPreview}
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100">
+    <div
+      class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+      in:fly={{ y: 20, duration: 600, easing: quintOut }}
+    >
       <div
-        class="p-6 border-b border-gray-100 flex justify-between items-center"
+        class="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-[#F8F8F8]"
       >
         <div>
-          <h2 class="text-lg font-semibold text-gray-900">Report Preview</h2>
-          <p class="text-sm text-gray-500 mt-1">
-            Total Records: {reportData.length}
+          <h2 class="text-xl font-semibold text-[#1A4786]">{t.preview}</h2>
+          <p class="text-sm text-gray-600 mt-1">
+            {t.totalRecords}:
+            <span class="font-semibold text-[#3A7AE0]">{reportData.length}</span
+            >
           </p>
         </div>
         <button
           on:click={downloadCSV}
-          class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition"
+          class="px-6 py-3 bg-linear-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg flex items-center gap-2"
         >
-          Download CSV
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
+          </svg>
+          {t.download}
         </button>
       </div>
 
       <div class="p-6">
         {#if reportData.length === 0}
-          <div class="text-center py-12">
-            <p class="text-gray-500">
-              No attendance records found for this period
-            </p>
+          <div class="text-center py-16" in:fade={{ duration: 300 }}>
+            <svg
+              class="w-16 h-16 text-gray-400 opacity-50 mb-4 mx-auto"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            <p class="text-gray-500">{t.noRecords}</p>
           </div>
         {:else}
-          <div class="overflow-x-auto max-h-96">
+          <div
+            class="overflow-x-auto rounded-lg max-h-[500px] overflow-y-auto"
+            in:fade={{ duration: 300 }}
+          >
             <table class="w-full">
-              <thead class="sticky top-0 bg-blue-500 text-white">
+              <thead
+                class="sticky top-0 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white"
+              >
                 <tr>
-                  <th class="text-left py-3 px-4 text-sm font-semibold">Date</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.date}</th
                   >
-                  <th class="text-left py-3 px-4 text-sm font-semibold"
-                    >Employee Name</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.employeeName}</th
                   >
-                  <th class="text-left py-3 px-4 text-sm font-semibold">NIK</th>
-                  <th class="text-left py-3 px-4 text-sm font-semibold">Site</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.nik}</th
                   >
-                  <th class="text-left py-3 px-4 text-sm font-semibold"
-                    >Check In</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.site}</th
                   >
-                  <th class="text-left py-3 px-4 text-sm font-semibold"
-                    >Check Out</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.checkIn}</th
                   >
-                  <th class="text-left py-3 px-4 text-sm font-semibold"
-                    >Status</th
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.checkOut}</th
+                  >
+                  <th
+                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
+                    >{t.status}</th
                   >
                 </tr>
               </thead>
               <tbody>
-                {#each reportData as row}
-                  <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 px-4 text-gray-700">{row.date}</td>
-                    <td class="py-3 px-4 text-gray-700">{row.name}</td>
-                    <td class="py-3 px-4 text-gray-700">{row.nik}</td>
-                    <td class="py-3 px-4 text-gray-700">{row.site}</td>
-                    <td class="py-3 px-4 text-gray-700">{row.checkIn}</td>
-                    <td class="py-3 px-4 text-gray-700">{row.checkOut}</td>
-                    <td class="py-3 px-4">{row.status}</td>
+                {#each reportData as row, i}
+                  <tr
+                    class="border-b border-gray-100 hover:bg-[#F8F8F8] transition-colors"
+                  >
+                    <td class="py-4 px-4 text-sm text-gray-700 font-medium"
+                      >{row.date}</td
+                    >
+                    <td class="py-4 px-4 text-sm text-gray-700 font-medium"
+                      >{row.name}</td
+                    >
+                    <td class="py-4 px-4 text-sm text-gray-600">{row.nik}</td>
+                    <td class="py-4 px-4 text-sm text-gray-600">{row.site}</td>
+                    <td class="py-4 px-4 text-sm text-gray-700"
+                      >{row.checkIn}</td
+                    >
+                    <td class="py-4 px-4 text-sm text-gray-700"
+                      >{row.checkOut}</td
+                    >
+                    <td class="py-4 px-4">
+                      <span
+                        class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide border transition-all"
+                        class:bg-green-status={row.status === t.onTime}
+                        class:bg-warning-status={row.status === t.late}
+                        class:bg-gray-status={row.status === t.incomplete}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
                   </tr>
                 {/each}
               </tbody>
@@ -311,3 +606,32 @@
     </div>
   {/if}
 </div>
+a
+
+<style>
+  .input-focus-ring {
+    transition: all 0.2s ease;
+  }
+
+  .input-focus-ring:focus-within {
+    transform: translateY(-2px);
+  }
+
+  .bg-green-status {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.2);
+  }
+
+  .bg-warning-status {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.2);
+  }
+
+  .bg-gray-status {
+    background: rgba(107, 114, 128, 0.1);
+    color: #6b7280;
+    border-color: rgba(107, 114, 128, 0.2);
+  }
+</style>

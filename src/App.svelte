@@ -3,7 +3,6 @@
   import { authStore } from "./stores/auth";
   import Login from "./lib/components/Login.svelte";
   import Topbar from "./lib/components/Topbar.svelte";
-  import Tabs from "./lib/components/Tabs.svelte";
   import Overview from "./lib/components/Overview.svelte";
   import Employees from "./lib/components/Employees.svelte";
   import Attendance from "./lib/components/Attendance.svelte";
@@ -12,6 +11,7 @@
   import EmployeeDashboard from "./lib/components/EmployeeDashboard.svelte";
 
   let activeTab = "overview";
+  let language = "en";
 
   $: isAdmin = $authStore.userData?.role === "admin";
   $: isAuthenticated = $authStore.user && $authStore.userData;
@@ -19,6 +19,11 @@
   function handleTabChange(tab) {
     console.log("Switching to tab:", tab);
     activeTab = tab;
+  }
+
+  function handleLanguageChange(lang) {
+    console.log("Switching to language:", lang);
+    language = lang;
   }
 
   // Debug
@@ -39,8 +44,12 @@
   {:else if !isAuthenticated}
     <Login />
   {:else}
-    <Topbar />
-    <Tabs {activeTab} onTabChange={handleTabChange} />
+    <Topbar
+      {activeTab}
+      onTabChange={handleTabChange}
+      {language}
+      onLanguageChange={handleLanguageChange}
+    />
 
     <div class="pb-8">
       <!-- Overview Tab - Always render but hide when not active -->
