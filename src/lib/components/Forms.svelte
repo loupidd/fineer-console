@@ -7,13 +7,15 @@
     updateDoc,
     doc,
     Timestamp,
+    query,
+    where,
   } from "firebase/firestore";
   import { db } from "../services/firebase";
   import { authStore } from "../../stores/auth";
   import { fade, fly } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import { translations } from "../i18n/translations";
-
+  import companyLogo from "../../assets/companyLogo.webp";
   import { language } from "../../stores/language";
 
   $: t = translations[$language].Forms;
@@ -22,7 +24,9 @@
   let isAdmin = false;
   let currentUserId = "";
 
-  $: isAdmin = $authStore.userData?.role === "admin";
+  $: isAdmin =
+    $authStore.userData?.role === "admin" ||
+    $authStore.userData?.role === "direktur";
   $: currentUserId = $authStore.userData?.id;
 
   // View and filter states
@@ -32,8 +36,12 @@
   let loading = false;
   let submissions = [];
 
+  // Monthly report states
+  let showMonthlyReportModal = false;
+  let reportMonth = "";
+  let reportYear = "";
+
   // LEAVE FORM STATE
-  // Updated to match the new leave form design with date range
   let leaveForm = {
     type: "",
     startDate: "",
@@ -44,7 +52,6 @@
   };
 
   // OVERTIME FORM STATE
-  // Updated to match the new overtime form design with time range
   let overtimeForm = {
     type: "overtime",
     date: "",
@@ -56,7 +63,6 @@
   };
 
   // PERMISSION FORM STATE
-  // New permission form state
   let permissionForm = {
     type: "",
     date: "",
@@ -67,6 +73,11 @@
   // Initialize component
   onMount(() => {
     loadSubmissions();
+
+    // Set default month and year for report
+    const now = new Date();
+    reportMonth = String(now.getMonth() + 1).padStart(2, "0");
+    reportYear = String(now.getFullYear());
   });
 
   // LOAD SUBMISSIONS FROM FIRESTORE
@@ -116,7 +127,6 @@
   }
 
   // CALCULATE LEAVE DAYS
-  // Calculate the number of days between start and end date
   function calculateLeaveDays() {
     if (leaveForm.startDate && leaveForm.endDate) {
       const start = new Date(leaveForm.startDate);
@@ -135,7 +145,6 @@
   }
 
   // CALCULATE TOTAL HOURS FOR OVERTIME
-  // Calculate hours between start and end time
   function calculateTotalHours() {
     if (overtimeForm.startTime && overtimeForm.endTime) {
       const start = overtimeForm.startTime.split(":");
@@ -146,7 +155,6 @@
 
       let diffMinutes = endMinutes - startMinutes;
 
-      // Handle overnight overtime
       if (diffMinutes < 0) {
         diffMinutes += 24 * 60;
       }
@@ -154,7 +162,6 @@
       const hours = Math.floor(diffMinutes / 60);
       const minutes = diffMinutes % 60;
 
-      // Convert to number instead of string
       overtimeForm.totalHours = Number((hours + minutes / 60).toFixed(1));
     } else {
       overtimeForm.totalHours = 0;
@@ -184,8 +191,8 @@
         reason: leaveForm.reason,
         status: leaveForm.status,
         userId: currentUserId,
-        userName: $authStore.userData.name,
-        userNik: $authStore.userData.nik,
+        userName: $authStore.userData?.name || "",
+        userNik: $authStore.userData?.nik || "",
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -224,8 +231,8 @@
         workDescription: overtimeForm.workDescription,
         status: overtimeForm.status,
         userId: currentUserId,
-        userName: $authStore.userData.name,
-        userNik: $authStore.userData.nik,
+        userName: $authStore.userData?.name || "",
+        userNik: $authStore.userData?.nik || "",
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -261,8 +268,8 @@
         details: permissionForm.details,
         status: permissionForm.status,
         userId: currentUserId,
-        userName: $authStore.userData.name,
-        userNik: $authStore.userData.nik,
+        userName: $authStore.userData?.name || "",
+        userNik: $authStore.userData?.nik || "",
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -279,7 +286,6 @@
   }
 
   // UPDATE SUBMISSION STATUS
-  // Admin and direktur approval workflow
   async function updateStatus(formId, newStatus) {
     loading = true;
     try {
@@ -288,13 +294,9 @@
       };
 
       // Admin approval
-      if (
-        newStatus === "approved" &&
-        isAdmin &&
-        $authStore.userData?.role === "admin"
-      ) {
+      if (newStatus === "approved" && $authStore.userData?.role === "admin") {
         updateData.status = "approved_by_admin";
-        updateData.approvedByAdmin = $authStore.userData.name;
+        updateData.approvedByAdmin = $authStore.userData?.name || "";
         updateData.approvedByAdminAt = Timestamp.now();
         alert("Form approved by admin. Waiting for direktur approval.");
       }
@@ -304,14 +306,14 @@
         $authStore.userData?.role === "direktur"
       ) {
         updateData.status = "approved";
-        updateData.approvedByDirektur = $authStore.userData.name;
+        updateData.approvedByDirektur = $authStore.userData?.name || "";
         updateData.approvedByDirekturAt = Timestamp.now();
         alert("Form fully approved by direktur.");
       }
       // Rejection at any stage
       else if (newStatus === "rejected") {
         updateData.status = "rejected";
-        updateData.rejectedBy = $authStore.userData.name;
+        updateData.rejectedBy = $authStore.userData?.name || "";
         updateData.rejectedAt = Timestamp.now();
         alert("Form rejected.");
       }
@@ -321,6 +323,645 @@
     } catch (error) {
       console.error("Error updating form status:", error);
       alert("Failed to update form status");
+    } finally {
+      loading = false;
+    }
+  }
+
+  // GENERATE BARCODE (Code128)
+  function generateBarcode(text) {
+    // Simple barcode generation using Code128B encoding
+    const canvas = document.createElement("canvas");
+    canvas.width = 200;
+    canvas.height = 80;
+    const ctx = canvas.getContext("2d");
+
+    // White background
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw barcode bars (simplified representation)
+    ctx.fillStyle = "#000000";
+    let x = 10;
+    const barWidth = 2;
+    const barHeight = 50;
+
+    // Create pattern from text
+    for (let i = 0; i < text.length; i++) {
+      const charCode = text.charCodeAt(i);
+      const pattern = charCode % 2 === 0 ? [1, 0, 1, 0] : [1, 1, 0, 0];
+
+      for (let j = 0; j < pattern.length; j++) {
+        if (pattern[j] === 1) {
+          ctx.fillRect(x, 10, barWidth, barHeight);
+        }
+        x += barWidth;
+      }
+    }
+
+    // Add text below barcode
+    ctx.fillStyle = "#000000";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(text.substring(0, 20), canvas.width / 2, 70);
+
+    return canvas.toDataURL();
+  }
+
+  // PRINT INDIVIDUAL PDF
+  function printIndividualPDF(submission) {
+    const printWindow = window.open("", "", "width=800,height=600");
+
+    const formTypeLabel =
+      submission.formType === "leave"
+        ? "Leave Request"
+        : submission.formType === "overtime"
+          ? "Overtime Request"
+          : "Permission Request";
+
+    // Generate barcodes for approvals
+    const adminBarcode = generateBarcode(
+      `ADMIN-${submission.id.substring(0, 8)}`
+    );
+    const direkturBarcode = generateBarcode(
+      `DIR-${submission.id.substring(0, 8)}`
+    );
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${formTypeLabel} - ${submission.userName}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            background: white;
+          }
+          .logo-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          .logo-header img {
+            height: 60px;
+            width: auto;
+          }
+          .logo-header .company-info h1 {
+            color: #1A4786;
+            font-size: 20px;
+            margin-bottom: 3px;
+          }
+          .logo-header .company-info p {
+            color: #666;
+            font-size: 12px;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 3px solid #1A4786;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+          }
+          .header h1 {
+            color: #1A4786;
+            font-size: 24px;
+            margin-bottom: 5px;
+          }
+          .header p {
+            color: #666;
+            font-size: 14px;
+          }
+          .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 12px;
+            margin: 10px 0;
+            background: #22c55e;
+            color: white;
+          }
+          .info-section {
+            margin: 20px 0;
+          }
+          .info-row {
+            display: flex;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          .info-label {
+            font-weight: bold;
+            color: #1A4786;
+            width: 180px;
+            flex-shrink: 0;
+          }
+          .info-value {
+            color: #333;
+            flex: 1;
+          }
+          .approval-section {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #1A4786;
+          }
+          .approval-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 30px 0;
+          }
+          .approval-box {
+            text-align: center;
+            width: 45%;
+            border: 2px solid #e5e7eb;
+            padding: 20px;
+            border-radius: 10px;
+            background: #f9fafb;
+          }
+          .approval-box h3 {
+            color: #1A4786;
+            font-size: 14px;
+            margin-bottom: 15px;
+          }
+          .barcode-container {
+            margin: 20px 0;
+            padding: 10px;
+            background: white;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+          }
+          .barcode-container img {
+            max-width: 100%;
+            height: auto;
+          }
+          .approval-info {
+            margin-top: 10px;
+            font-size: 11px;
+            color: #666;
+          }
+          .verified-badge {
+            display: inline-block;
+            background: #22c55e;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            margin-top: 10px;
+          }
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 20px;
+          }
+          @media print {
+            body { padding: 20px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="logo-header">
+          <img src="${companyLogo}" alt="Company Logo" />
+          <div class="company-info">
+            <h1>PT Fineer Nusantara</h1>
+            <p>Employee Management System</p>
+          </div>
+        </div>
+        
+        <div class="header">
+          <h1>${formTypeLabel}</h1>
+          <p>Document ID: ${submission.id}</p>
+          <span class="status-badge">✓ APPROVED & VERIFIED</span>
+        </div>
+        
+        <div class="info-section">
+          <div class="info-row">
+            <div class="info-label">Employee Name:</div>
+            <div class="info-value">${submission.userName}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">NIK:</div>
+            <div class="info-value">${submission.userNik}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Submission Date:</div>
+            <div class="info-value">${formatDate(submission.createdAt)}</div>
+          </div>
+          ${
+            submission.formType === "leave"
+              ? `
+          <div class="info-row">
+            <div class="info-label">Leave Type:</div>
+            <div class="info-value">${submission.leaveType}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Start Date:</div>
+            <div class="info-value">${submission.startDate}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">End Date:</div>
+            <div class="info-value">${submission.endDate}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Total Days:</div>
+            <div class="info-value">${submission.totalDays} days</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Reason:</div>
+            <div class="info-value">${submission.reason}</div>
+          </div>
+          `
+              : submission.formType === "overtime"
+                ? `
+          <div class="info-row">
+            <div class="info-label">Date:</div>
+            <div class="info-value">${submission.date}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Start Time:</div>
+            <div class="info-value">${submission.startTime}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">End Time:</div>
+            <div class="info-value">${submission.endTime}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Total Hours:</div>
+            <div class="info-value">${submission.totalHours} hours</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Work Description:</div>
+            <div class="info-value">${submission.workDescription}</div>
+          </div>
+          `
+                : `
+          <div class="info-row">
+            <div class="info-label">Permission Type:</div>
+            <div class="info-value">${submission.permissionType}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Date:</div>
+            <div class="info-value">${submission.date}</div>
+          </div>
+          <div class="info-row">
+            <div class="info-label">Details:</div>
+            <div class="info-value">${submission.details}</div>
+          </div>
+          `
+          }
+        </div>
+        
+        <div class="approval-section">
+          <h2 style="color: #1A4786; margin-bottom: 20px;">Digital Approval Verification</h2>
+          <div class="approval-row">
+            <div class="approval-box">
+              <h3>Admin Approval</h3>
+              <p><strong>${submission.approvedByAdmin || "-"}</strong></p>
+              <p class="approval-info">${submission.approvedByAdminAt ? formatDate(submission.approvedByAdminAt) : ""}</p>
+              <div class="barcode-container">
+                <img src="${adminBarcode}" alt="Admin Approval Barcode" />
+              </div>
+              <span class="verified-badge">✓ VERIFIED</span>
+            </div>
+            <div class="approval-box">
+              <h3>Direktur Approval</h3>
+              <p><strong>${submission.approvedByDirektur || "-"}</strong></p>
+              <p class="approval-info">${submission.approvedByDirekturAt ? formatDate(submission.approvedByDirekturAt) : ""}</p>
+              <div class="barcode-container">
+                <img src="${direkturBarcode}" alt="Direktur Approval Barcode" />
+              </div>
+              <span class="verified-badge">✓ VERIFIED</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p><strong>This is a digitally verified document with barcode authentication.</strong></p>
+          <p>Document generated on: ${new Date().toLocaleString()}</p>
+          <p style="margin-top: 5px; font-size: 10px;">Verification codes are unique to this approval process.</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+
+    printWindow.onload = function () {
+      printWindow.print();
+    };
+  }
+
+  // PRINT MONTHLY REPORT
+  async function printMonthlyReport() {
+    if (!reportMonth || !reportYear) {
+      alert("Please select a month and year");
+      return;
+    }
+
+    loading = true;
+
+    try {
+      // Get current language before filtering
+      const currentLang = $language;
+      const isIndonesian = currentLang === "id";
+
+      // Filter submissions for the selected month and year
+      const monthSubmissions = submissions.filter((sub) => {
+        if (!sub.createdAt || !sub.createdAt.seconds) return false;
+
+        const subDate = new Date(sub.createdAt.seconds * 1000);
+        const subMonth = String(subDate.getMonth() + 1).padStart(2, "0");
+        const subYear = String(subDate.getFullYear());
+
+        return subMonth === reportMonth && subYear === reportYear;
+      });
+
+      if (monthSubmissions.length === 0) {
+        alert(
+          isIndonesian
+            ? "Tidak ada pengajuan pada bulan yang dipilih"
+            : "No submissions found for the selected month"
+        );
+        loading = false;
+        return;
+      }
+
+      const printWindow = window.open("", "", "width=1000,height=800");
+
+      const monthName = new Date(
+        Number(reportYear),
+        parseInt(reportMonth) - 1
+      ).toLocaleString(isIndonesian ? "id-ID" : "en-US", { month: "long" });
+
+      const tableRows = monthSubmissions
+        .map((sub, index) => {
+          // Get details based on form type
+          let details = "";
+          let dateInfo = "";
+
+          if (sub.formType === "leave") {
+            dateInfo = `${sub.startDate} ${isIndonesian ? "sampai" : "to"} ${sub.endDate} (${sub.totalDays} ${isIndonesian ? "hari" : "days"})`;
+            details = sub.reason || "-";
+          } else if (sub.formType === "overtime") {
+            dateInfo = `${sub.date} (${sub.startTime} - ${sub.endTime})`;
+            details = sub.workDescription || "-";
+          } else if (sub.formType === "permission") {
+            dateInfo = sub.date || "-";
+            details = sub.details || "-";
+          }
+
+          const formTypeBadge =
+            sub.formType === "leave"
+              ? isIndonesian
+                ? "Cuti"
+                : "Leave"
+              : sub.formType === "overtime"
+                ? isIndonesian
+                  ? "Lembur"
+                  : "Overtime"
+                : isIndonesian
+                  ? "Izin"
+                  : "Permission";
+
+          const statusText =
+            sub.status === "approved"
+              ? `✓ ${t.approved}`
+              : sub.status === "rejected"
+                ? `✗ ${t.rejected}`
+                : sub.status === "approved_by_admin"
+                  ? `Admin ${t.approved}`
+                  : `⏱ ${t.pending}`;
+
+          return `
+        <tr style="page-break-inside: avoid;">
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: top;">${index + 1}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; vertical-align: top;">
+            <strong>${sub.userName}</strong><br/>
+            <span style="font-size: 10px; color: #666;">NIK: ${sub.userNik}</span>
+          </td>
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: top;">
+            <span style="padding: 3px 8px; border-radius: 8px; font-size: 10px; font-weight: bold; background: #e0e7ff; color: #3730a3; display: inline-block;">
+              ${formTypeBadge}
+            </span>
+            ${sub.formType === "leave" && sub.leaveType ? `<br/><span style="font-size: 9px; color: #666;">${sub.leaveType}</span>` : ""}
+            ${sub.formType === "permission" && sub.permissionType ? `<br/><span style="font-size: 9px; color: #666;">${sub.permissionType}</span>` : ""}
+          </td>
+          <td style="border: 1px solid #ddd; padding: 8px; font-size: 11px; vertical-align: top;">
+            ${dateInfo}
+          </td>
+          <td style="border: 1px solid #ddd; padding: 8px; font-size: 11px; vertical-align: top; max-width: 250px;">
+            ${details}
+          </td>
+          <td style="border: 1px solid #ddd; padding: 8px; text-align: center; vertical-align: top;">
+            <span style="padding: 4px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; display: inline-block;
+              ${
+                sub.status === "approved"
+                  ? "background: #22c55e; color: white;"
+                  : sub.status === "rejected"
+                    ? "background: #ef4444; color: white;"
+                    : sub.status === "approved_by_admin"
+                      ? "background: #3b82f6; color: white;"
+                      : "background: #f59e0b; color: white;"
+              }">
+              ${statusText}
+            </span><br/>
+            <span style="font-size: 9px; color: #666; margin-top: 3px; display: inline-block;">
+              ${formatDate(sub.createdAt)}
+            </span>
+          </td>
+        </tr>
+      `;
+        })
+        .join("");
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${$language === "id" ? "Laporan Bulanan" : "Monthly Report"} - ${monthName} ${reportYear}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              font-family: Arial, sans-serif;
+              padding: 30px;
+              background: white;
+            }
+            .logo-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 20px;
+              padding-bottom: 15px;
+              border-bottom: 2px solid #1A4786;
+            }
+            .logo-section {
+              display: flex;
+              align-items: center;
+              gap: 15px;
+            }
+            .logo-section img {
+              height: 50px;
+              width: auto;
+            }
+            .logo-section .company-info h1 {
+              color: #1A4786;
+              font-size: 18px;
+              margin-bottom: 3px;
+            }
+            .logo-section .company-info p {
+              color: #666;
+              font-size: 11px;
+            }
+            .header {
+              text-align: center;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+            }
+            .header h1 {
+              color: #1A4786;
+              font-size: 28px;
+              margin-bottom: 5px;
+            }
+            .header p {
+              color: #666;
+              font-size: 14px;
+            }
+            .summary {
+              display: flex;
+              justify-content: space-around;
+              margin: 20px 0;
+              padding: 20px;
+              background: #f8f9fa;
+              border-radius: 10px;
+            }
+            .summary-item {
+              text-align: center;
+            }
+            .summary-item h3 {
+              color: #1A4786;
+              font-size: 32px;
+              margin-bottom: 5px;
+            }
+            .summary-item p {
+              color: #666;
+              font-size: 14px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 20px 0;
+            }
+            th {
+              background: #1A4786;
+              color: white;
+              padding: 12px 8px;
+              text-align: left;
+              font-size: 11px;
+            }
+            td {
+              border: 1px solid #ddd;
+              padding: 8px;
+              font-size: 11px;
+              vertical-align: top;
+            }
+            .footer {
+              margin-top: 40px;
+              text-align: center;
+              font-size: 12px;
+              color: #666;
+              border-top: 1px solid #ddd;
+              padding-top: 20px;
+            }
+            @media print {
+              body { padding: 15px; }
+              .summary { page-break-after: avoid; }
+              table { page-break-inside: auto; }
+              tr { page-break-inside: avoid; page-break-after: auto; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="logo-header">
+            <div class="logo-section">
+              <img src="${companyLogo}" alt="Company Logo" />
+              <div class="company-info">
+                <h1>PT Fineer Nusantara</h1>
+                <p>${$language === "id" ? "Manajemen Sumber Daya Manusia" : "Human Resources Management"}</p>
+              </div>
+            </div>
+            <div style="text-align: right;">
+              <p style="font-size: 11px; color: #666;">${$language === "id" ? "Laporan Dibuat" : "Report Generated"}</p>
+              <p style="font-size: 11px; color: #1A4786; font-weight: bold;">${new Date().toLocaleDateString($language === "id" ? "id-ID" : "en-US")}</p>
+            </div>
+          </div>
+          
+          <div class="header">
+            <h1>${$language === "id" ? "Laporan Lembur dan Cuti Bulanan" : "Monthly Submissions Report"}</h1>
+            <p>${monthName} ${reportYear}</p>
+          </div>
+          
+          <div class="summary">
+            <div class="summary-item">
+              <h3>${monthSubmissions.length}</h3>
+              <p>${$language === "id" ? "Total Pengajuan" : "Total Submissions"}</p>
+            </div>
+            <div class="summary-item">
+              <h3>${monthSubmissions.filter((s) => s.status === "approved").length}</h3>
+              <p>${t.approved}</p>
+            </div>
+            <div class="summary-item">
+              <h3>${monthSubmissions.filter((s) => s.status === "pending" || s.status === "approved_by_admin").length}</h3>
+              <p>${t.pending}</p>
+            </div>
+            <div class="summary-item">
+              <h3>${monthSubmissions.filter((s) => s.status === "rejected").length}</h3>
+              <p>${t.rejected}</p>
+            </div>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: center; width: 30px;">No</th>
+                <th style="width: 120px;">${$language === "id" ? "Karyawan" : "Employee"}</th>
+                <th style="width: 80px;">${t.type}</th>
+                <th style="width: 140px;">${$language === "id" ? "Tanggal/Periode" : "Date/Period"}</th>
+                <th style="width: 220px;">${$language === "id" ? "Keperluan/Deskripsi" : "Reason/Description"}</th>
+                <th style="text-align: center; width: 90px;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+          
+          <div class="footer">
+            <p>${$language === "id" ? "Laporan ini dibuat secara otomatis pada" : "This report was generated automatically on"} ${new Date().toLocaleString($language === "id" ? "id-ID" : "en-US")}</p>
+            <p>${$language === "id" ? "Total rekaman" : "Total records"}: ${monthSubmissions.length}</p>
+            <p style="margin-top: 10px; font-size: 10px;">Fineer by TripleS - ${$language === "id" ? "Dokumen Rahasia" : "Confidential Document"}</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+      printWindow.document.write(html);
+      printWindow.document.close();
+
+      printWindow.onload = function () {
+        printWindow.print();
+      };
+
+      showMonthlyReportModal = false;
+    } catch (error) {
+      console.error("Error generating monthly report:", error);
+      alert("Failed to generate monthly report");
     } finally {
       loading = false;
     }
@@ -374,8 +1015,16 @@
     );
   }
 
-  // FILTER SUBMISSIONS BASED ON ACTIVE FILTER
+  // FILTER SUBMISSIONS BASED ON ACTIVE FILTER AND ROLE
   $: filteredSubmissions = submissions.filter((submission) => {
+    // Direktur should only see submissions approved by admin
+    if (
+      $authStore.userData?.role === "direktur" &&
+      submission.status === "pending"
+    ) {
+      return false;
+    }
+
     if (activeFilter === "all") return true;
     if (activeFilter === "pending")
       return (
@@ -1016,6 +1665,7 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               stroke-linecap="round"
@@ -1031,25 +1681,52 @@
           {filteredSubmissions.length === 1 ? "submission" : "submissions"}
         </p>
       </div>
-      <button
-        on:click={loadSubmissions}
-        class="px-6 py-3 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] hover:shadow-lg hover:scale-105 text-white rounded-xl font-semibold transition-all flex items-center gap-2"
-      >
-        <svg
-          class="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+      <div class="flex gap-2 flex-wrap">
+        {#if isAdmin}
+          <button
+            on:click={() => (showMonthlyReportModal = true)}
+            class="px-6 py-3 bg-linear-to-r from-[#FFD700] to-[#FFA500] hover:shadow-lg hover:scale-105 text-[#1A4786] rounded-xl font-semibold transition-all flex items-center gap-2"
+            aria-label="Generate monthly report"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+            Monthly Report
+          </button>
+        {/if}
+        <button
+          on:click={loadSubmissions}
+          class="px-6 py-3 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] hover:shadow-lg hover:scale-105 text-white rounded-xl font-semibold transition-all flex items-center gap-2"
+          aria-label="Refresh submissions list"
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
-        </svg>
-        {t.refresh}
-      </button>
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          {t.refresh}
+        </button>
+      </div>
     </div>
 
     <!-- Filter Tabs -->
@@ -1061,6 +1738,8 @@
           'all'
             ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-md'
             : 'bg-white text-gray-600 hover:bg-gray-100'}"
+          aria-label="Show all submissions"
+          aria-pressed={activeFilter === "all"}
         >
           {t.allSubmissions}
           <span
@@ -1078,6 +1757,8 @@
           'pending'
             ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-md'
             : 'bg-white text-gray-600 hover:bg-gray-100'}"
+          aria-label="Show pending submissions"
+          aria-pressed={activeFilter === "pending"}
         >
           {t.pendingSubmissions}
           <span
@@ -1097,6 +1778,8 @@
           'approved'
             ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-md'
             : 'bg-white text-gray-600 hover:bg-gray-100'}"
+          aria-label="Show approved submissions"
+          aria-pressed={activeFilter === "approved"}
         >
           {t.approvedSubmissions}
           <span
@@ -1114,6 +1797,8 @@
           'rejected'
             ? 'bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white shadow-md'
             : 'bg-white text-gray-600 hover:bg-gray-100'}"
+          aria-label="Show rejected submissions"
+          aria-pressed={activeFilter === "rejected"}
         >
           {t.rejectedSubmissions}
           <span
@@ -1133,6 +1818,8 @@
         <div class="flex flex-col items-center justify-center py-20">
           <div
             class="w-16 h-16 border-4 border-[#F8F8F8] border-t-[#3A7AE0] rounded-full animate-spin"
+            role="status"
+            aria-label="Loading submissions"
           ></div>
           <p class="mt-4 text-gray-500 font-medium">{t.loading}</p>
         </div>
@@ -1146,6 +1833,7 @@
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path
                 stroke-linecap="round"
@@ -1160,7 +1848,7 @@
       {:else}
         <div class="space-y-4">
           {#each filteredSubmissions as submission, i}
-            <div
+            <article
               class="border-2 border-gray-100 rounded-2xl p-6 hover:shadow-md hover:border-[#3A7AE0]/30 transition-all bg-linear-to-r from-white to-[#F8F8F8]/30"
               in:fly={{ y: 20, duration: 400, delay: i * 50, easing: quintOut }}
             >
@@ -1171,10 +1859,13 @@
                   <div class="flex flex-wrap items-center gap-2 mb-3">
                     <span
                       class="px-3 py-1.5 text-xs font-bold bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white rounded-full shadow-sm uppercase tracking-wide"
+                      role="status"
                     >
-                      {submission.type === "leave"
+                      {submission.formType === "leave"
                         ? t.leaveRequest
-                        : t.overtimeRequest}
+                        : submission.formType === "overtime"
+                          ? t.overtimeRequest
+                          : t.permissionRequest}
                     </span>
                     <span
                       class="px-3 py-1.5 text-xs font-bold rounded-full uppercase tracking-wide shadow-sm border-2 {submission.status ===
@@ -1185,6 +1876,7 @@
                           : submission.status === 'approved_by_admin'
                             ? 'bg-blue-50 text-blue-700 border-blue-200'
                             : 'bg-amber-50 text-amber-700 border-amber-200'}"
+                      role="status"
                     >
                       {submission.status === "approved"
                         ? t.approved
@@ -1203,6 +1895,7 @@
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
                       >
                         <path
                           stroke-linecap="round"
@@ -1222,6 +1915,7 @@
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
                       >
                         <path
                           stroke-linecap="round"
@@ -1246,24 +1940,36 @@
                           >{t.date}</span
                         >
                         <p class="text-sm font-bold text-[#1A4786] mt-1">
-                          {submission.date}
+                          {submission.formType === "leave"
+                            ? `${submission.startDate} - ${submission.endDate}`
+                            : submission.date}
                         </p>
                       </div>
-                      {#if submission.type === "overtime"}
+                      {#if submission.formType === "overtime"}
                         <div>
                           <span
                             class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
                             >{t.duration}</span
                           >
                           <p class="text-sm font-bold text-[#1A4786] mt-1">
-                            {submission.duration}
+                            {submission.totalHours}
                             {t.hours}
+                          </p>
+                        </div>
+                      {:else if submission.formType === "leave"}
+                        <div>
+                          <span
+                            class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                            >Total Days</span
+                          >
+                          <p class="text-sm font-bold text-[#1A4786] mt-1">
+                            {submission.totalDays} days
                           </p>
                         </div>
                       {/if}
                     </div>
 
-                    {#if submission.type === "overtime"}
+                    {#if submission.formType === "overtime"}
                       <div>
                         <span
                           class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
@@ -1273,63 +1979,42 @@
                           {submission.workDescription}
                         </p>
                       </div>
-                    {/if}
-
-                    {#if submission.type === "leave"}
+                    {:else if submission.formType === "leave"}
                       <div>
                         <span
                           class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
                           >{t.type}</span
                         >
-                        <div class="flex flex-wrap gap-2 mt-2">
-                          {#if submission.lateArrival}
-                            <span
-                              class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg"
-                              >{t.lateArrival}</span
-                            >
-                          {/if}
-                          {#if submission.sick}
-                            <span
-                              class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg"
-                              >{t.sickLeave}</span
-                            >
-                          {/if}
-                          {#if submission.earlyLeave}
-                            <span
-                              class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg"
-                              >{t.earlyLeave}</span
-                            >
-                          {/if}
-                          {#if submission.other}
-                            <span
-                              class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg"
-                              >{t.other}</span
-                            >
-                          {/if}
-                        </div>
+                        <p class="text-sm text-gray-700 mt-1">
+                          {submission.leaveType}
+                        </p>
                       </div>
-                    {/if}
-
-                    <div>
-                      <span
-                        class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
-                        >{t.reason}</span
-                      >
-                      <p class="text-sm text-gray-700 mt-1">
-                        {submission.reason}
-                      </p>
-                    </div>
-
-                    {#if submission.approvedBy}
-                      <div class="pt-3 border-t border-gray-200">
-                        <p class="text-xs text-gray-500">
-                          {submission.status === "approved"
-                            ? t.approved
-                            : t.rejected}
-                          {t.approvedBy}
-                          <span class="font-semibold text-[#1A4786]"
-                            >{submission.approvedBy}</span
-                          >
+                      <div>
+                        <span
+                          class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                          >{t.reason}</span
+                        >
+                        <p class="text-sm text-gray-700 mt-1">
+                          {submission.reason}
+                        </p>
+                      </div>
+                    {:else if submission.formType === "permission"}
+                      <div>
+                        <span
+                          class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                          >Permission Type</span
+                        >
+                        <p class="text-sm text-gray-700 mt-1">
+                          {submission.permissionType}
+                        </p>
+                      </div>
+                      <div>
+                        <span
+                          class="text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                          >Details</span
+                        >
+                        <p class="text-sm text-gray-700 mt-1">
+                          {submission.details}
                         </p>
                       </div>
                     {/if}
@@ -1369,18 +2054,21 @@
                   </div>
                 </div>
 
-                {#if isAdmin && submission.status === "pending"}
-                  <div class="flex lg:flex-col gap-2">
+                <div class="flex lg:flex-col gap-2">
+                  {#if $authStore.userData?.role === "admin" && submission.status === "pending"}
+                    <!-- Admin can approve pending submissions -->
                     <button
                       on:click={() => updateStatus(submission.id, "approved")}
                       disabled={loading}
                       class="flex-1 lg:flex-none px-6 py-3 bg-linear-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105"
+                      aria-label="Approve submission"
                     >
                       <svg
                         class="w-5 h-5"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
                       >
                         <path
                           stroke-linecap="round"
@@ -1395,12 +2083,14 @@
                       on:click={() => updateStatus(submission.id, "rejected")}
                       disabled={loading}
                       class="flex-1 lg:flex-none px-6 py-3 bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105"
+                      aria-label="Reject submission"
                     >
                       <svg
                         class="w-5 h-5"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
+                        aria-hidden="true"
                       >
                         <path
                           stroke-linecap="round"
@@ -1411,15 +2101,215 @@
                       </svg>
                       {t.reject}
                     </button>
-                  </div>
-                {/if}
+                  {/if}
+
+                  {#if $authStore.userData?.role === "direktur" && submission.status === "approved_by_admin"}
+                    <!-- Direktur can approve submissions approved by admin -->
+                    <button
+                      on:click={() => updateStatus(submission.id, "approved")}
+                      disabled={loading}
+                      class="flex-1 lg:flex-none px-6 py-3 bg-linear-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105"
+                      aria-label="Approve submission as direktur"
+                    >
+                      <svg
+                        class="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                      {t.approve}
+                    </button>
+                    <button
+                      on:click={() => updateStatus(submission.id, "rejected")}
+                      disabled={loading}
+                      class="flex-1 lg:flex-none px-6 py-3 bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105"
+                      aria-label="Reject submission as direktur"
+                    >
+                      <svg
+                        class="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                      {t.reject}
+                    </button>
+                  {/if}
+
+                  {#if submission.status === "approved" && submission.approvedByAdmin && submission.approvedByDirektur}
+                    <!-- Print button for fully approved submissions -->
+                    <button
+                      on:click={() => printIndividualPDF(submission)}
+                      class="flex-1 lg:flex-none px-6 py-3 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] hover:shadow-lg hover:scale-105 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+                      aria-label="Print approved submission as PDF"
+                    >
+                      <svg
+                        class="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+                        />
+                      </svg>
+                      Print PDF
+                    </button>
+                  {/if}
+                </div>
               </div>
-            </div>
+            </article>
           {/each}
         </div>
       {/if}
     </div>
   </div>
+
+  <!-- Monthly Report Modal -->
+  {#if showMonthlyReportModal}
+    <div
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      in:fade={{ duration: 200 }}
+      on:click={() => (showMonthlyReportModal = false)}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="monthly-report-title"
+    >
+      <div
+        class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+        on:click|stopPropagation
+        in:fly={{ y: 20, duration: 300, easing: quintOut }}
+      >
+        <div class="flex justify-between items-center mb-6">
+          <h3
+            id="monthly-report-title"
+            class="text-2xl font-bold text-[#1A4786]"
+          >
+            Generate Monthly Report
+          </h3>
+          <button
+            on:click={() => (showMonthlyReportModal = false)}
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Close modal"
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label
+              for="report-month"
+              class="block text-sm font-semibold text-gray-700 mb-2"
+            >
+              Select Month
+            </label>
+            <select
+              id="report-month"
+              bind:value={reportMonth}
+              class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all"
+            >
+              <option value="01">January</option>
+              <option value="02">February</option>
+              <option value="03">March</option>
+              <option value="04">April</option>
+              <option value="05">May</option>
+              <option value="06">June</option>
+              <option value="07">July</option>
+              <option value="08">August</option>
+              <option value="09">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              for="report-year"
+              class="block text-sm font-semibold text-gray-700 mb-2"
+            >
+              Select Year
+            </label>
+            <select
+              id="report-year"
+              bind:value={reportYear}
+              class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all"
+            >
+              <option value="2023">2023</option>
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex gap-3 mt-6">
+          <button
+            on:click={() => (showMonthlyReportModal = false)}
+            class="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all"
+            aria-label="Cancel report generation"
+          >
+            Cancel
+          </button>
+          <button
+            on:click={printMonthlyReport}
+            disabled={loading}
+            class="flex-1 px-6 py-3 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] hover:shadow-lg hover:scale-105 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Generate and print report"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
+              />
+            </svg>
+            Generate
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>

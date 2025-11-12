@@ -16,6 +16,7 @@
   const adminTabs = [
     { id: "overview", label: "overview", icon: "chart" },
     { id: "employees", label: "employees", icon: "users" },
+    { id: "managePegawai", label: "manageEmployees", icon: "userPlus" },
     { id: "attendance", label: "attendance", icon: "clipboard" },
     { id: "forms", label: "forms", icon: "document" },
     { id: "reports", label: "reports", icon: "file" },
@@ -46,6 +47,10 @@
     </svg>`,
     home: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+    </svg>`,
+    userPlus: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+      d="M12 14c-3.866 0-7 1.343-7 3v3m7-6a4 4 0 100-8 4 4 0 000 8zm9-5h-3m0 0V7m0 3v3" />
     </svg>`,
   };
 
