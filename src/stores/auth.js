@@ -19,7 +19,7 @@ function createAuthStore() {
   // Check if session is expired
   function isSessionExpired() {
     const expiry = localStorage.getItem(SESSION_KEY);
-    if (!expiry) return true;
+    if (!expiry) return false; // Changed: No expiry means fresh login, not expired
     return Date.now() > parseInt(expiry);
   }
 
@@ -75,8 +75,10 @@ function createAuthStore() {
   // Initialize auth state listener
   onAuthStateChanged(auth, async (user) => {
     if (user) {
-      // Check if session is expired
-      if (isSessionExpired()) {
+      // Only check session expiry if a session exists
+      const existingExpiry = localStorage.getItem(SESSION_KEY);
+      
+      if (existingExpiry && isSessionExpired()) {
         console.log('Session expired on auth state change');
         await handleSignOut();
         return;
@@ -90,7 +92,7 @@ function createAuthStore() {
         if (!snapshot.empty) {
           const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
           
-          // Set new session expiry
+          // Set new session expiry (or extend existing one)
           const expiry = setSessionExpiry();
           
           // Start monitoring session
