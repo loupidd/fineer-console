@@ -473,33 +473,31 @@
         style="transform: translate({mouseX * 0.5}px, {mouseY *
           0.5}px); transition: transform 0.3s ease-out;"
       >
-        <!-- Tagline with shimmer effect -->
         <div class="relative inline-block">
           <p
             class="text-white/90 text-sm lg:text-base mb-8 lg:mb-12 font-medium {mounted
               ? 'animate-fade-in'
               : 'opacity-0'}"
           >
-            Streamline your team's attendance –
-            <span class="text-gradient font-bold">effortless tracking</span> made
-            simple.
+            Manage your team effortlessly with
+            <span class="text-gradient font-bold">Fineer</span> – smart attendance
+            and form tracking for every role.
           </p>
         </div>
 
-        <!-- Main heading with enhanced styling -->
         <h1
           class="relative text-white text-5xl lg:text-7xl font-black mb-8 lg:mb-16 leading-tight {mounted
             ? 'animate-slide-in-left delay-100'
             : 'opacity-0'}"
         >
           <span class="relative inline-block">
-            Track & Manage
+            Simplify
             <div
               class="absolute -bottom-2 left-0 w-full h-1 bg-linear-to-r from-transparent via-[#FFD700] to-transparent animate-shimmer-gold"
             ></div>
           </span>
           <br />
-          <span class="text-gradient animate-glow">Attendance</span>
+          <span class="text-gradient animate-glow">Workflows</span>
         </h1>
 
         <!-- Enhanced phone mockup -->
@@ -588,10 +586,7 @@
               Sign In
             </h2>
             <p class="text-gray-500 text-base font-medium">
-              Access your
-              <span class="text-[#3A7AE0] font-semibold"
-                >attendance dashboard</span
-              >
+              Access your dashboard tailored for your role
             </p>
           </div>
 
@@ -791,36 +786,10 @@
           >
             <div class="flex items-center justify-between">
               <p class="font-medium">
-                © 2005-2025 <span class="text-[#3A7AE0] font-semibold"
-                  >Fineer Inc.</span
+                © 2023-2025 <span class="text-[#3A7AE0] font-semibold"
+                  >Fineer by TripleS</span
                 >
               </p>
-              <div class="flex items-center gap-4">
-                <a
-                  href="/contact"
-                  class="hover:text-[#3A7AE0] transition-colors font-semibold hover:scale-110 transform inline-block"
-                >
-                  Contact Us
-                </a>
-                <button
-                  class="flex items-center gap-1 hover:text-[#3A7AE0] transition-colors font-semibold hover:scale-110 transform"
-                >
-                  English
-                  <svg
-                    class="w-3 h-3"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-              </div>
             </div>
           </div>
         </div>

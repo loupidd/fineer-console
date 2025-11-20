@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import {
     collection,
     query,
@@ -14,55 +14,150 @@
   import { language } from "../../stores/language";
 
   $: t = translations[$language].EmployeeOverview;
-  $: userId = $authStore.userData?.id;
-  $: userName = $authStore.userData?.name;
 
   let mounted = false;
   let loading = false;
   let todayAttendance = null;
   let monthlyStats = { present: 0, late: 0, total: 0, rate: 0 };
 
+  // Cache to prevent redundant reads
+  let lastUserId = null;
+  let lastLoadDate = null;
+  let dataCache = {
+    todayAttendance: null,
+    monthlyStats: null,
+    cacheTime: null,
+  };
+
+  // Cache duration: 5 minutes
+  const CACHE_DURATION = 5 * 60 * 1000;
+
+  // Refresh interval
+  let refreshInterval = null;
+
   onMount(() => {
     mounted = true;
+    const userId = $authStore.userData?.id;
+
     if (userId) {
-      loadTodayAttendance();
-      loadMonthlyStats();
+      loadData(userId);
+
+      // Set up periodic refresh (every 5 minutes)
+      refreshInterval = setInterval(() => {
+        const currentUserId = $authStore.userData?.id;
+        if (currentUserId) {
+          loadData(currentUserId, true); // Force refresh
+        }
+      }, CACHE_DURATION);
     }
   });
 
-  $: if (mounted && userId) {
-    loadTodayAttendance();
-    loadMonthlyStats();
-  }
+  onDestroy(() => {
+    // Clean up interval
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+  });
 
-  // Load today's attendance from subcollection presence
-  async function loadTodayAttendance() {
+  // Single load function with caching
+  async function loadData(userId, forceRefresh = false) {
     if (!userId) return;
+
+    const today = new Date().toDateString();
+
+    // Check if we can use cached data
+    if (
+      !forceRefresh &&
+      lastUserId === userId &&
+      lastLoadDate === today &&
+      dataCache.cacheTime &&
+      Date.now() - dataCache.cacheTime < CACHE_DURATION
+    ) {
+      console.log("Using cached data");
+      todayAttendance = dataCache.todayAttendance;
+      monthlyStats = dataCache.monthlyStats;
+      return;
+    }
+
+    // Check if user changed or date changed
+    const userChanged = lastUserId !== userId;
+    const dateChanged = lastLoadDate !== today;
+
     loading = true;
+
     try {
-      // Format date as "d-M-yyyy" to match document ID (e.g., "11-11-2025")
-      const now = new Date();
-      const docId = `${now.getDate()}-${now.getMonth() + 1}-${now.getFullYear()}`;
-
-      // Reference to specific document: pegawai/{userId}/presence/{docId}
-      const presenceRef = doc(db, "pegawai", userId, "presence", docId);
-      const presenceDoc = await getDoc(presenceRef);
-
-      if (presenceDoc.exists()) {
-        todayAttendance = presenceDoc.data();
+      // Load today's attendance only if needed
+      if (
+        userChanged ||
+        dateChanged ||
+        forceRefresh ||
+        !dataCache.todayAttendance
+      ) {
+        await loadTodayAttendance(userId);
       } else {
-        todayAttendance = null;
+        todayAttendance = dataCache.todayAttendance;
       }
+
+      // Load monthly stats only if needed (user changed, month changed, or force refresh)
+      const currentMonth = new Date().getMonth();
+      const needsMonthlyUpdate =
+        userChanged ||
+        !dataCache.monthlyStats ||
+        forceRefresh ||
+        dataCache.monthlyStats.month !== currentMonth;
+
+      if (needsMonthlyUpdate) {
+        await loadMonthlyStats(userId);
+      } else {
+        monthlyStats = dataCache.monthlyStats;
+      }
+
+      // Update cache
+      lastUserId = userId;
+      lastLoadDate = today;
+      dataCache.cacheTime = Date.now();
     } catch (error) {
-      console.error("Error loading today's attendance:", error);
+      console.error("Error loading data:", error);
     } finally {
       loading = false;
     }
   }
 
-  // Load monthly attendance stats
-  async function loadMonthlyStats() {
+  // Load today's attendance from subcollection presence
+  async function loadTodayAttendance(userId) {
     if (!userId) return;
+
+    try {
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const year = now.getFullYear();
+      const docId = `${month}-${day}-${year}`;
+
+      console.log("Loading attendance for docId:", docId);
+
+      const presenceRef = doc(db, "pegawai", userId, "presence", docId);
+      const presenceDoc = await getDoc(presenceRef);
+
+      if (presenceDoc.exists()) {
+        const data = presenceDoc.data();
+        console.log("Today's attendance data:", data);
+        todayAttendance = data;
+        dataCache.todayAttendance = data;
+      } else {
+        console.log("No attendance record found for today");
+        todayAttendance = null;
+        dataCache.todayAttendance = null;
+      }
+    } catch (error) {
+      console.error("Error loading today's attendance:", error);
+    }
+  }
+
+  // Load monthly attendance stats - OPTIMIZED VERSION
+  async function loadMonthlyStats(userId) {
+    if (!userId) return;
+
     try {
       const now = new Date();
       const currentMonth = now.getMonth() + 1;
@@ -70,45 +165,83 @@
 
       // Get all presence documents for the current month
       const presenceRef = collection(db, "pegawai", userId, "presence");
+
+      // OPTIMIZATION: Use query with where clause to limit documents
+      // This requires a composite index in Firestore
+      // Alternative: Fetch all and filter (current approach)
       const snapshot = await getDocs(presenceRef);
 
       let present = 0;
       let late = 0;
 
       snapshot.docs.forEach((docSnap) => {
-        const docId = docSnap.id; // Format: "d-M-yyyy"
+        const docId = docSnap.id;
         const parts = docId.split("-");
 
         if (parts.length === 3) {
-          const docMonth = parseInt(parts[1]);
+          const docMonth = parseInt(parts[0]);
           const docYear = parseInt(parts[2]);
 
-          // Check if document is from current month and year
+          // Only process current month documents
           if (docMonth === currentMonth && docYear === currentYear) {
             const data = docSnap.data();
 
-            // Check if there's a check-in (masuk field exists)
             if (data.masuk && data.masuk.date) {
               present++;
 
-              // Check if late (after 9:00 AM)
-              const checkInTime = data.masuk.date.toDate();
-              const checkInHour = checkInTime.getHours();
-              const checkInMinute = checkInTime.getMinutes();
-              if (checkInHour > 9 || (checkInHour === 9 && checkInMinute > 0)) {
-                late++;
+              try {
+                let checkInTime;
+                if (typeof data.masuk.date.toDate === "function") {
+                  checkInTime = data.masuk.date.toDate();
+                } else if (data.masuk.date instanceof Date) {
+                  checkInTime = data.masuk.date;
+                } else if (
+                  typeof data.masuk.date === "string" ||
+                  typeof data.masuk.date === "number"
+                ) {
+                  checkInTime = new Date(data.masuk.date);
+                } else {
+                  return;
+                }
+
+                if (
+                  checkInTime instanceof Date &&
+                  !isNaN(checkInTime.getTime())
+                ) {
+                  const checkInHour = checkInTime.getHours();
+                  const checkInMinute = checkInTime.getMinutes();
+                  if (
+                    checkInHour > 9 ||
+                    (checkInHour === 9 && checkInMinute > 0)
+                  ) {
+                    late++;
+                  }
+                }
+              } catch (err) {
+                console.error(
+                  "Error processing date for document:",
+                  docId,
+                  err
+                );
               }
             }
           }
         }
       });
 
-      // Calculate work days in current month
       const workDays = new Date(currentYear, currentMonth, 0).getDate();
       const attendanceRate =
         workDays > 0 ? Math.round((present / workDays) * 100) : 0;
 
-      monthlyStats = { present, late, total: workDays, rate: attendanceRate };
+      monthlyStats = {
+        present,
+        late,
+        total: workDays,
+        rate: attendanceRate,
+        month: currentMonth, // Store month for cache validation
+      };
+
+      dataCache.monthlyStats = monthlyStats;
     } catch (error) {
       console.error("Error loading monthly stats:", error);
     }
@@ -117,14 +250,38 @@
   function formatTime(timestamp) {
     if (!timestamp) return "-";
 
-    // Handle Firestore Timestamp
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    try {
+      let date;
+      if (timestamp.toDate && typeof timestamp.toDate === "function") {
+        date = timestamp.toDate();
+      } else if (timestamp instanceof Date) {
+        date = timestamp;
+      } else if (
+        typeof timestamp === "string" ||
+        typeof timestamp === "number"
+      ) {
+        date = new Date(timestamp);
+      } else {
+        console.warn("Unknown timestamp format:", timestamp);
+        return "-";
+      }
 
-    return date.toLocaleTimeString($language === "id" ? "id-ID" : "en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+      if (isNaN(date.getTime())) {
+        return "-";
+      }
+
+      return date.toLocaleTimeString($language === "id" ? "id-ID" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (error) {
+      console.error("Error formatting time:", error);
+      return "-";
+    }
   }
+
+  // Reactive variable for userName - doesn't trigger data reload
+  $: userName = $authStore.userData?.name;
 </script>
 
 <svelte:head>
@@ -176,7 +333,6 @@
     ? 'animate-slide-in-up delay-100'
     : 'opacity-0'}"
 >
-  <!-- Animated background elements -->
   <div
     class="absolute top-0 right-0 w-96 h-96 bg-white/10 rounded-full -mr-48 -mt-48 animate-pulse"
     style="animation-duration: 4s;"
@@ -215,7 +371,6 @@
       </div>
     </div>
 
-    <!-- Current date/time display -->
     <div
       class="mt-6 flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 w-fit"
     >
@@ -252,7 +407,7 @@
 >
   <div class="flex items-center justify-between mb-8">
     <h2 class="text-2xl font-black text-[#1A4786]">{t.todayAttendance}</h2>
-    <diva
+    <div
       class="flex items-center gap-2 text-sm font-semibold text-gray-600 bg-gray-100 px-4 py-2 rounded-xl"
     >
       <svg
@@ -272,7 +427,7 @@
         hour: "2-digit",
         minute: "2-digit",
       })}
-    </diva>
+    </div>
   </div>
 
   {#if loading}
@@ -405,7 +560,7 @@
             {/if}
           </div>
 
-          <div class="text-5xl font-black text-green-900 mb-3 tracking-tight">
+          <div class="text-5xl font-black text-yellow-900 mb-3 tracking-tight">
             {formatTime(todayAttendance?.keluar?.date) || "--:--"}
           </div>
 

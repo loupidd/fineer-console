@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import {
     collection,
     getDocs,
@@ -70,6 +70,16 @@
     status: "pending",
   };
 
+  // CACHE MANAGEMENT
+  let submissionsCache = {
+    data: null,
+    timestamp: null,
+    userId: null,
+  };
+  const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes cache
+  let refreshInterval = null;
+  let lastUserId = null;
+
   // Initialize component
   onMount(() => {
     loadSubmissions();
@@ -78,14 +88,62 @@
     const now = new Date();
     reportMonth = String(now.getMonth() + 1).padStart(2, "0");
     reportYear = String(now.getFullYear());
+
+    // Set up periodic refresh every 2 minutes
+    refreshInterval = setInterval(() => {
+      if (currentUserId) {
+        loadSubmissions(true); // Force refresh
+      }
+    }, CACHE_DURATION);
   });
 
-  // LOAD SUBMISSIONS FROM FIRESTORE
-  async function loadSubmissions() {
+  onDestroy(() => {
+    // Clean up interval
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+  });
+
+  // Helper function for manual refresh button click
+  function handleRefreshClick() {
+    loadSubmissions(true);
+  }
+
+  // LOAD SUBMISSIONS FROM FIRESTORE WITH CACHING
+  async function loadSubmissions(forceRefresh = false) {
+    // Check if we can use cached data
+    const now = Date.now();
+    const cacheValid =
+      submissionsCache.data &&
+      submissionsCache.timestamp &&
+      submissionsCache.userId === currentUserId &&
+      now - submissionsCache.timestamp < CACHE_DURATION;
+
+    if (!forceRefresh && cacheValid) {
+      console.log("Using cached submissions data");
+      submissions = submissionsCache.data;
+      return;
+    }
+
+    // Check if user changed
+    const userChanged = lastUserId !== currentUserId;
+    if (userChanged) {
+      console.log("User changed, clearing cache");
+      submissionsCache = { data: null, timestamp: null, userId: null };
+    }
+
     loading = true;
     try {
       const formsRef = collection(db, "forms");
-      const snap = await getDocs(formsRef);
+
+      // OPTIMIZATION: If not admin, use query to filter by userId on server side
+      let snap;
+      if (!isAdmin && currentUserId) {
+        const q = query(formsRef, where("userId", "==", currentUserId));
+        snap = await getDocs(q);
+      } else {
+        snap = await getDocs(formsRef);
+      }
 
       let allSubmissions = snap.docs.map((doc) => {
         const data = doc.data() || {};
@@ -97,7 +155,7 @@
         };
       });
 
-      // Filter by user if not admin
+      // For admin, filter might still be needed if some docs don't have userId
       if (!isAdmin && currentUserId) {
         allSubmissions = allSubmissions.filter(
           (s) => s.userId && s.userId === currentUserId
@@ -118,6 +176,17 @@
       });
 
       submissions = allSubmissions;
+
+      // Update cache
+      submissionsCache = {
+        data: allSubmissions,
+        timestamp: now,
+        userId: currentUserId,
+      };
+
+      lastUserId = currentUserId;
+
+      console.log(`Loaded ${allSubmissions.length} submissions from Firestore`);
     } catch (error) {
       console.error("Error loading submissions:", error);
       alert("Error loading submissions: " + error.message);
@@ -199,7 +268,10 @@
 
       alert("Leave request submitted successfully");
       resetLeaveForm();
-      loadSubmissions();
+
+      // Invalidate cache and reload
+      submissionsCache = { data: null, timestamp: null, userId: null };
+      loadSubmissions(true);
     } catch (error) {
       console.error("Error submitting leave request:", error);
       alert("Failed to submit leave request");
@@ -239,7 +311,10 @@
 
       alert("Overtime request submitted successfully");
       resetOvertimeForm();
-      loadSubmissions();
+
+      // Invalidate cache and reload
+      submissionsCache = { data: null, timestamp: null, userId: null };
+      loadSubmissions(true);
     } catch (error) {
       console.error("Error submitting overtime request:", error);
       alert("Failed to submit overtime request");
@@ -276,7 +351,10 @@
 
       alert("Permission request submitted successfully");
       resetPermissionForm();
-      loadSubmissions();
+
+      // Invalidate cache and reload
+      submissionsCache = { data: null, timestamp: null, userId: null };
+      loadSubmissions(true);
     } catch (error) {
       console.error("Error submitting permission request:", error);
       alert("Failed to submit permission request");
@@ -319,7 +397,10 @@
       }
 
       await updateDoc(doc(db, "forms", formId), updateData);
-      loadSubmissions();
+
+      // Invalidate cache and reload
+      submissionsCache = { data: null, timestamp: null, userId: null };
+      loadSubmissions(true);
     } catch (error) {
       console.error("Error updating form status:", error);
       alert("Failed to update form status");
@@ -529,7 +610,7 @@
         <div class="logo-header">
           <img src="${companyLogo}" alt="Company Logo" />
           <div class="company-info">
-            <h1>PT Fineer Nusantara</h1>
+            <h1>Fineer by TripleS</h1>
             <p>Employee Management System</p>
           </div>
         </div>
@@ -736,7 +817,7 @@
               : sub.status === "rejected"
                 ? `✗ ${t.rejected}`
                 : sub.status === "approved_by_admin"
-                  ? `Admin ${t.approved}`
+                  ? ` ${t.approved} Admin`
                   : `⏱ ${t.pending}`;
 
           return `
@@ -892,7 +973,7 @@
             <div class="logo-section">
               <img src="${companyLogo}" alt="Company Logo" />
               <div class="company-info">
-                <h1>PT Fineer Nusantara</h1>
+                <h1>Fineer by TripleS </h1>
                 <p>${$language === "id" ? "Manajemen Sumber Daya Manusia" : "Human Resources Management"}</p>
               </div>
             </div>
@@ -1706,7 +1787,7 @@
           </button>
         {/if}
         <button
-          on:click={loadSubmissions}
+          on:click={handleRefreshClick}
           class="px-6 py-3 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] hover:shadow-lg hover:scale-105 text-white rounded-xl font-semibold transition-all flex items-center gap-2"
           aria-label="Refresh submissions list"
         >
@@ -2187,24 +2268,26 @@
   <!-- Monthly Report Modal -->
   {#if showMonthlyReportModal}
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      in:fade={{ duration: 200 }}
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
       on:click={() => (showMonthlyReportModal = false)}
+      on:keydown={(e) => e.key === "Escape" && (showMonthlyReportModal = false)}
       role="dialog"
+      tabindex="-1"
       aria-modal="true"
-      aria-labelledby="monthly-report-title"
+      aria-labelledby="modal-title"
     >
       <div
-        class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+        class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8"
         on:click|stopPropagation
+        on:keydown|stopPropagation
+        role="presentation"
         in:fly={{ y: 20, duration: 300, easing: quintOut }}
       >
         <div class="flex justify-between items-center mb-6">
-          <h3
-            id="monthly-report-title"
-            class="text-2xl font-bold text-[#1A4786]"
-          >
-            Generate Monthly Report
+          <h3 id="modal-title" class="text-2xl font-bold text-[#1A4786]">
+            {$language === "id"
+              ? "Buat Laporan Bulanan"
+              : "Generate Monthly Report"}
           </h3>
           <button
             on:click={() => (showMonthlyReportModal = false)}
@@ -2232,41 +2315,59 @@
           <div>
             <label
               for="report-month"
-              class="block text-sm font-semibold text-gray-700 mb-2"
+              class="block text-sm font-semibold text-[#1A4786] mb-2"
             >
-              Select Month
+              {$language === "id" ? "Pilih Bulan" : "Select Month"}
             </label>
             <select
               id="report-month"
               bind:value={reportMonth}
-              class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all"
+              class="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 20 20%22%3E%3Cpath stroke=%22%236b7280%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%221.5%22 d=%22m6 8 4 4 4-4%22/%3E%3C/svg%3E')] bg-size-[1.5em_1.5em] bg-position-[right_0.5rem_center] bg-no-repeat"
             >
-              <option value="01">January</option>
-              <option value="02">February</option>
-              <option value="03">March</option>
-              <option value="04">April</option>
-              <option value="05">May</option>
-              <option value="06">June</option>
-              <option value="07">July</option>
-              <option value="08">August</option>
-              <option value="09">September</option>
-              <option value="10">October</option>
-              <option value="11">November</option>
-              <option value="12">December</option>
+              <option value="01"
+                >{$language === "id" ? "Januari" : "January"}</option
+              >
+              <option value="02"
+                >{$language === "id" ? "Februari" : "February"}</option
+              >
+              <option value="03"
+                >{$language === "id" ? "Maret" : "March"}</option
+              >
+              <option value="04"
+                >{$language === "id" ? "April" : "April"}</option
+              >
+              <option value="05">{$language === "id" ? "Mei" : "May"}</option>
+              <option value="06">{$language === "id" ? "Juni" : "June"}</option>
+              <option value="07">{$language === "id" ? "Juli" : "July"}</option>
+              <option value="08"
+                >{$language === "id" ? "Agustus" : "August"}</option
+              >
+              <option value="09"
+                >{$language === "id" ? "September" : "September"}</option
+              >
+              <option value="10"
+                >{$language === "id" ? "Oktober" : "October"}</option
+              >
+              <option value="11"
+                >{$language === "id" ? "November" : "November"}</option
+              >
+              <option value="12"
+                >{$language === "id" ? "Desember" : "December"}</option
+              >
             </select>
           </div>
 
           <div>
             <label
               for="report-year"
-              class="block text-sm font-semibold text-gray-700 mb-2"
+              class="block text-sm font-semibold text-[#1A4786] mb-2"
             >
-              Select Year
+              {$language === "id" ? "Pilih Tahun" : "Select Year"}
             </label>
             <select
               id="report-year"
               bind:value={reportYear}
-              class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all"
+              class="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:ring-2 focus:ring-[#3A7AE0]/20 transition-all appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 20 20%22%3E%3Cpath stroke=%22%236b7280%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%221.5%22 d=%22m6 8 4 4 4-4%22/%3E%3C/svg%3E')] bg-size-[1.5em_1.5em] bg-position-[right_0.5rem_center] bg-no-repeat"
             >
               <option value="2023">2023</option>
               <option value="2024">2024</option>
@@ -2282,7 +2383,7 @@
             class="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-all"
             aria-label="Cancel report generation"
           >
-            Cancel
+            {$language === "id" ? "Batal" : "Cancel"}
           </button>
           <button
             on:click={printMonthlyReport}
@@ -2304,7 +2405,7 @@
                 d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
               />
             </svg>
-            Generate
+            {$language === "id" ? "Buat Laporan" : "Generate"}
           </button>
         </div>
       </div>
