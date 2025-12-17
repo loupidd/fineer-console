@@ -21,6 +21,11 @@
   let selectedMonth = getDefaultMonth();
   let selectedYear = new Date().getFullYear().toString();
   let selectedEmployee = "all";
+
+  // New variables for custom date range
+  let reportStartDate = "";
+  let reportEndDate = "";
+
   let employees = [];
   let reportData = [];
   let showPreview = false;
@@ -31,8 +36,18 @@
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   }
 
+  // Initialize default date range (21st of last month to 20th of current month)
+  function initializeDefaultDateRange() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 21);
+    const end = new Date(now.getFullYear(), now.getMonth(), 20);
+    reportStartDate = start.toISOString().split("T")[0];
+    reportEndDate = end.toISOString().split("T")[0];
+  }
+
   onMount(() => {
     loadEmployees();
+    initializeDefaultDateRange();
   });
 
   async function loadEmployees() {
@@ -59,14 +74,12 @@
           { year: "numeric", month: "long", day: "numeric" }
         );
       } else if (reportType === "monthly") {
-        const [year, month] = selectedMonth.split("-");
-        const lastDay = new Date(Number(year), Number(month), 0).getDate();
-        startDate = `${year}-${month}-01`;
-        endDate = `${year}-${month}-${lastDay}T23:59:59`;
-        periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
-          $language === "id" ? "id-ID" : "en-US",
-          { month: "long", year: "numeric" }
-        );
+        // Use custom date range
+        startDate = reportStartDate;
+        endDate = `${reportEndDate}T23:59:59`;
+        const start = new Date(reportStartDate);
+        const end = new Date(reportEndDate);
+        periodName = `${start.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "long", day: "numeric" })} - ${end.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "long", day: "numeric" })}`;
       } else {
         // yearly
         startDate = `${selectedYear}-01-01`;
@@ -154,11 +167,9 @@
         { year: "numeric", month: "long", day: "numeric" }
       );
     } else if (reportType === "monthly") {
-      const [year, month] = selectedMonth.split("-");
-      periodName = new Date(Number(year), Number(month) - 1).toLocaleString(
-        $language === "id" ? "id-ID" : "en-US",
-        { month: "long", year: "numeric" }
-      );
+      const start = new Date(reportStartDate);
+      const end = new Date(reportEndDate);
+      periodName = `${start.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "short", day: "numeric" })}_to_${end.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "short", day: "numeric" })}`;
     } else {
       periodName = selectedYear;
     }
@@ -204,7 +215,7 @@
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
 
-    const filename = `Attendance_Report_${reportType}_${reportType === "daily" ? selectedDate : reportType === "monthly" ? selectedMonth : selectedYear}.csv`;
+    const filename = `Attendance_Report_${reportType}_${periodName.replace(/\s+/g, "_")}.csv`;
 
     link.setAttribute("href", url);
     link.setAttribute("download", filename);
@@ -306,19 +317,49 @@
           />
         </div>
       {:else if reportType === "monthly"}
-        <div class="input-focus-ring" in:fade={{ duration: 200 }}>
-          <label
-            for="month"
-            class="block text-sm font-semibold text-[#1A4786] mb-2"
+        <div in:fade={{ duration: 200 }}>
+          <!-- Info Box -->
+          <div
+            class="p-3 bg-blue-50 border-l-4 border-[#3A7AE0] rounded-lg mb-4"
           >
-            {t.selectMonth}
-          </label>
-          <input
-            id="month"
-            type="month"
-            bind:value={selectedMonth}
-            class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium"
-          />
+            <p class="text-xs text-[#1A4786]">
+              {$language === "id"
+                ? "💡 Secara default: Tanggal 21 bulan lalu sampai tanggal 20 bulan ini"
+                : "💡 Default: 21st of last month to 20th of current month"}
+            </p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div class="input-focus-ring">
+              <label
+                for="report-start-date"
+                class="block text-sm font-semibold text-[#1A4786] mb-2"
+              >
+                {$language === "id" ? "Tanggal Mulai" : "Start Date"}
+              </label>
+              <input
+                id="report-start-date"
+                type="date"
+                bind:value={reportStartDate}
+                class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium hover:border-gray-300"
+              />
+            </div>
+
+            <div class="input-focus-ring">
+              <label
+                for="report-end-date"
+                class="block text-sm font-semibold text-[#1A4786] mb-2"
+              >
+                {$language === "id" ? "Tanggal Selesai" : "End Date"}
+              </label>
+              <input
+                id="report-end-date"
+                type="date"
+                bind:value={reportEndDate}
+                class="w-full px-4 py-3 bg-[#F8F8F8] border-2 border-gray-200 rounded-xl focus:border-[#3A7AE0] focus:bg-white transition-all text-[#1A4786] font-medium hover:border-gray-300"
+              />
+            </div>
+          </div>
         </div>
       {:else}
         <div class="input-focus-ring" in:fade={{ duration: 200 }}>
@@ -363,7 +404,8 @@
       <!-- Generate Button -->
       <button
         on:click={generateReport}
-        disabled={loading}
+        disabled={loading ||
+          (reportType === "monthly" && (!reportStartDate || !reportEndDate))}
         class="w-full px-6 py-4 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
       >
         {#if loading}
@@ -542,7 +584,6 @@
     </div>
   {/if}
 </div>
-a
 
 <style>
   .input-focus-ring {
