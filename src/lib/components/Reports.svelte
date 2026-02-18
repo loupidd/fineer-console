@@ -22,7 +22,6 @@
   let selectedYear = new Date().getFullYear().toString();
   let selectedEmployee = "all";
 
-  // New variables for custom date range
   let reportStartDate = "";
   let reportEndDate = "";
 
@@ -31,12 +30,14 @@
   let showPreview = false;
   let loading = false;
 
+  // Time integrity filter
+  let filterIntegrity = "all"; // "all" | "warning" | "suspicious"
+
   function getDefaultMonth() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   }
 
-  // Initialize default date range (21st of last month to 20th of current month)
   function initializeDefaultDateRange() {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth() - 1, 21);
@@ -59,6 +60,59 @@
     }
   }
 
+  // ── Time integrity helpers ────────────────────────────────────────────────
+
+  /**
+   * Returns the worst integrity level between check-in and check-out.
+   * Priority: suspicious > warning > normal > unknown
+   */
+  function getIntegrityLevel(presence) {
+    const levels = ["suspicious", "warning", "normal", "unknown"];
+    const checkInLevel = presence.masuk?.timeIntegrityLevel ?? "unknown";
+    const checkOutLevel = presence.keluar?.timeIntegrityLevel ?? "unknown";
+    const checkInIdx = levels.indexOf(checkInLevel);
+    const checkOutIdx = levels.indexOf(checkOutLevel);
+    return levels[Math.min(checkInIdx, checkOutIdx)];
+  }
+
+  function getMaxDelta(presence) {
+    const checkInDelta = presence.masuk?.timeDeltaSeconds ?? 0;
+    const checkOutDelta = presence.keluar?.timeDeltaSeconds ?? 0;
+    return Math.max(checkInDelta, checkOutDelta);
+  }
+
+  function integrityLabel(level, delta) {
+    if (level === "suspicious") return `Suspicious (+${delta}s)`;
+    if (level === "warning") return `Warning (+${delta}s)`;
+    if (level === "normal") return `Normal`;
+    return `Unknown`;
+  }
+
+
+  // ── Filtered view of report data ─────────────────────────────────────────
+  $: filteredData =
+    filterIntegrity === "all"
+      ? reportData
+      : reportData.filter((row) => {
+          if (filterIntegrity === "suspicious")
+            return row.integrityLevel === "suspicious";
+          if (filterIntegrity === "warning")
+            return (
+              row.integrityLevel === "warning" ||
+              row.integrityLevel === "suspicious"
+            );
+          return true;
+        });
+
+  $: suspiciousCount = reportData.filter(
+    (r) => r.integrityLevel === "suspicious"
+  ).length;
+  $: warningCount = reportData.filter(
+    (r) => r.integrityLevel === "warning"
+  ).length;
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   async function generateReport() {
     loading = true;
     showPreview = false;
@@ -74,14 +128,12 @@
           { year: "numeric", month: "long", day: "numeric" }
         );
       } else if (reportType === "monthly") {
-        // Use custom date range
         startDate = reportStartDate;
         endDate = `${reportEndDate}T23:59:59`;
         const start = new Date(reportStartDate);
         const end = new Date(reportEndDate);
         periodName = `${start.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "long", day: "numeric" })} - ${end.toLocaleDateString($language === "id" ? "id-ID" : "en-US", { year: "numeric", month: "long", day: "numeric" })}`;
       } else {
-        // yearly
         startDate = `${selectedYear}-01-01`;
         endDate = `${selectedYear}-12-31T23:59:59`;
         periodName = selectedYear;
@@ -132,6 +184,11 @@
           if (isLate) status = t.late;
           if (isIncomplete) status = t.incomplete;
 
+          // ── Time integrity ────────────────────────────────────────────
+          const integrityLevel = getIntegrityLevel(presence);
+          const maxDelta = getMaxDelta(presence);
+          // ─────────────────────────────────────────────────────────────
+
           data.push({
             date,
             name: employee.name,
@@ -140,6 +197,8 @@
             checkIn,
             checkOut,
             status,
+            integrityLevel,
+            maxDelta,
           });
         });
       }
@@ -182,8 +241,12 @@
       t.checkIn,
       t.checkOut,
       t.status,
+      "Time Integrity",
+      "Delta (s)",
     ];
-    const rows = reportData.map((row) => [
+
+    // Export current filtered view
+    const rows = filteredData.map((row) => [
       row.date,
       row.name,
       row.nik,
@@ -191,6 +254,8 @@
       row.checkIn,
       row.checkOut,
       row.status,
+      row.integrityLevel,
+      row.maxDelta,
     ]);
 
     const csvContent = [[`Attendance Report - ${periodName}`], headers, ...rows]
@@ -214,8 +279,8 @@
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
-
-    const filename = `Attendance_Report_${reportType}_${periodName.replace(/\s+/g, "_")}.csv`;
+    const suffix = filterIntegrity !== "all" ? `_${filterIntegrity}` : "";
+    const filename = `Attendance_Report_${reportType}_${periodName.replace(/\s+/g, "_")}${suffix}.csv`;
 
     link.setAttribute("href", url);
     link.setAttribute("download", filename);
@@ -318,14 +383,11 @@
         </div>
       {:else if reportType === "monthly"}
         <div in:fade={{ duration: 200 }}>
-          <!-- Info Box -->
-          <div
-            class="p-3 bg-blue-50 border-l-4 border-[#3A7AE0] rounded-lg mb-4"
-          >
+          <div class="p-3 bg-blue-50 border-l-4 border-[#3A7AE0] rounded-lg mb-4">
             <p class="text-xs text-[#1A4786]">
               {$language === "id"
-                ? "💡 Secara default: Tanggal 21 bulan lalu sampai tanggal 20 bulan ini"
-                : "💡 Default: 21st of last month to 20th of current month"}
+                ? "Periode default sistem: Tanggal 21 bulan lalu sampai tanggal 20 bulan ini"
+                : "System Default: 21st of last month to 20th of current month"}
             </p>
           </div>
 
@@ -455,40 +517,139 @@
       class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
       in:fly={{ y: 20, duration: 600, easing: quintOut }}
     >
+      <!-- Preview Header -->
       <div
-        class="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 bg-[#F8F8F8]"
+        class="p-6 border-b border-gray-100 flex flex-col gap-4 bg-[#F8F8F8]"
       >
-        <div>
-          <h2 class="text-xl font-semibold text-[#1A4786]">{t.preview}</h2>
-          <p class="text-sm text-gray-600 mt-1">
-            {t.totalRecords}:
-            <span class="font-semibold text-[#3A7AE0]">{reportData.length}</span
-            >
-          </p>
-        </div>
-        <button
-          on:click={downloadCSV}
-          class="px-6 py-3 bg-linear-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg flex items-center gap-2"
-        >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div>
+            <h2 class="text-xl font-semibold text-[#1A4786]">{t.preview}</h2>
+            <p class="text-sm text-gray-600 mt-1">
+              {t.totalRecords}:
+              <span class="font-semibold text-[#3A7AE0]"
+                >{filteredData.length}</span
+              >
+              {#if filterIntegrity !== "all"}
+                <span class="text-gray-400 ml-1">(dari {reportData.length} total)</span>
+              {/if}
+            </p>
+          </div>
+          <button
+            on:click={downloadCSV}
+            class="px-6 py-3 bg-linear-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all shadow-sm hover:shadow-lg flex items-center gap-2"
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-            />
-          </svg>
-          {t.download}
-        </button>
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              />
+            </svg>
+            {t.download}
+          </button>
+        </div>
+
+        <!-- Time Integrity Summary + Filter -->
+        {#if suspiciousCount > 0 || warningCount > 0}
+          <div in:fade={{ duration: 200 }}>
+            <!-- Alert banner -->
+            <div
+              class="flex items-start gap-3 p-4 rounded-xl mb-3"
+              class:bg-red-50={suspiciousCount > 0}
+              class:border={suspiciousCount > 0}
+              class:border-red-200={suspiciousCount > 0}
+              class:bg-amber-50={suspiciousCount === 0 && warningCount > 0}
+              class:border-amber-200={suspiciousCount === 0 && warningCount > 0}
+            >
+              <div
+  class="flex items-start gap-3 p-4 rounded-xl mb-3 border-l-4"
+  class:border-red-500={suspiciousCount > 0}
+  class:bg-red-50={suspiciousCount > 0}
+  class:border-amber-500={suspiciousCount === 0 && warningCount > 0}
+  class:bg-amber-50={suspiciousCount === 0 && warningCount > 0}
+>
+              </div>
+              <div class="flex-1">
+                <p
+                  class="text-sm font-semibold"
+                  class:text-red-700={suspiciousCount > 0}
+                  class:text-amber-700={suspiciousCount === 0}
+                >
+                  {#if suspiciousCount > 0}
+                    Terdeteksi {suspiciousCount} catatan dengan indikasi manipulasi waktu
+                    {#if warningCount > 0}+ {warningCount} peringatan{/if}
+                  {:else}
+                    {warningCount} catatan dengan selisih waktu device vs server &gt; 2 menit
+                  {/if}
+                </p>
+                <p
+                  class="text-xs mt-0.5"
+                  class:text-red-600={suspiciousCount > 0}
+                  class:text-amber-600={suspiciousCount === 0}
+                >
+                  Jam perangkat karyawan berbeda signifikan dari waktu server Firestore saat absen.
+                  Tandai sebagai perlu verifikasi manual.
+                </p>
+              </div>
+            </div>
+
+            <!-- Filter pills -->
+            <div class="flex gap-2 flex-wrap">
+              <button
+                on:click={() => (filterIntegrity = "all")}
+                class="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                class:bg-[#1A4786]={filterIntegrity === "all"}
+                class:text-white={filterIntegrity === "all"}
+                class:border-[#1A4786]={filterIntegrity === "all"}
+                class:bg-white={filterIntegrity !== "all"}
+                class:text-gray-600={filterIntegrity !== "all"}
+                class:border-gray-300={filterIntegrity !== "all"}
+              >
+                Semua ({reportData.length})
+              </button>
+
+              {#if suspiciousCount > 0}
+                <button
+                  on:click={() => (filterIntegrity = "suspicious")}
+                  class="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                  class:bg-red-500={filterIntegrity === "suspicious"}
+                  class:text-white={filterIntegrity === "suspicious"}
+                  class:border-red-500={filterIntegrity === "suspicious"}
+                  class:bg-white={filterIntegrity !== "suspicious"}
+                  class:text-red-600={filterIntegrity !== "suspicious"}
+                  class:border-red-300={filterIntegrity !== "suspicious"}
+                >
+                  Suspicious ({suspiciousCount})
+                </button>
+              {/if}
+
+              {#if warningCount > 0}
+                <button
+                  on:click={() => (filterIntegrity = "warning")}
+                  class="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
+                  class:bg-amber-500={filterIntegrity === "warning"}
+                  class:text-white={filterIntegrity === "warning"}
+                  class:border-amber-500={filterIntegrity === "warning"}
+                  class:bg-white={filterIntegrity !== "warning"}
+                  class:text-amber-600={filterIntegrity !== "warning"}
+                  class:border-amber-300={filterIntegrity !== "warning"}
+                >
+                  Warning & Suspicious ({warningCount + suspiciousCount})
+                </button>
+              {/if}
+            </div>
+          </div>
+        {/if}
       </div>
 
       <div class="p-6">
-        {#if reportData.length === 0}
+        {#if filteredData.length === 0}
           <div class="text-center py-16" in:fade={{ duration: 300 }}>
             <svg
               class="w-16 h-16 text-gray-400 opacity-50 mb-4 mx-auto"
@@ -515,55 +676,34 @@
                 class="sticky top-0 bg-linear-to-r from-[#1A4786] to-[#3A7AE0] text-white"
               >
                 <tr>
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.date}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.employeeName}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.nik}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.site}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.checkIn}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.checkOut}</th
-                  >
-                  <th
-                    class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider"
-                    >{t.status}</th
-                  >
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.date}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.employeeName}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.nik}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.site}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.checkIn}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.checkOut}</th>
+                  <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider">{t.status}</th>
+                  <!-- Time integrity column — only shown when there are anomalies -->
+                  {#if suspiciousCount > 0 || warningCount > 0}
+                    <th class="text-left py-4 px-4 text-xs font-semibold uppercase tracking-wider whitespace-nowrap">
+                      ⏱ Time Check
+                    </th>
+                  {/if}
                 </tr>
               </thead>
               <tbody>
-                {#each reportData as row, i}
+                {#each filteredData as row, i}
                   <tr
                     class="border-b border-gray-100 hover:bg-[#F8F8F8] transition-colors"
+                    class:bg-red-50={row.integrityLevel === "suspicious"}
+                    class:bg-amber-50={row.integrityLevel === "warning"}
                   >
-                    <td class="py-4 px-4 text-sm text-gray-700 font-medium"
-                      >{row.date}</td
-                    >
-                    <td class="py-4 px-4 text-sm text-gray-700 font-medium"
-                      >{row.name}</td
-                    >
+                    <td class="py-4 px-4 text-sm text-gray-700 font-medium">{row.date}</td>
+                    <td class="py-4 px-4 text-sm text-gray-700 font-medium">{row.name}</td>
                     <td class="py-4 px-4 text-sm text-gray-600">{row.nik}</td>
                     <td class="py-4 px-4 text-sm text-gray-600">{row.site}</td>
-                    <td class="py-4 px-4 text-sm text-gray-700"
-                      >{row.checkIn}</td
-                    >
-                    <td class="py-4 px-4 text-sm text-gray-700"
-                      >{row.checkOut}</td
-                    >
+                    <td class="py-4 px-4 text-sm text-gray-700">{row.checkIn}</td>
+                    <td class="py-4 px-4 text-sm text-gray-700">{row.checkOut}</td>
                     <td class="py-4 px-4">
                       <span
                         class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide border transition-all"
@@ -574,6 +714,28 @@
                         {row.status}
                       </span>
                     </td>
+
+                    <!-- Time integrity badge -->
+                    {#if suspiciousCount > 0 || warningCount > 0}
+                      <td class="py-4 px-4">
+                        {#if row.integrityLevel === "suspicious"}
+                          <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
+                            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                            +{row.maxDelta}s
+                          </span>
+                        {:else if row.integrityLevel === "warning"}
+                          <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200 whitespace-nowrap">
+                            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                            +{row.maxDelta}s
+                          </span>
+                        {:else}
+                          <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            OK
+                          </span>
+                        {/if}
+                      </td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
